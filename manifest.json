@@ -1,0 +1,23 @@
+{
+    "manifest_version": 3,
+    "name": "Research Assistant",
+    "version": "1.0.0",
+    "description": "Automatically saves important webpages based on time and scroll behavior",
+    
+    "permissions": [
+      "storage"
+    ],
+    
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"],
+        "run_at": "document_idle"
+      }
+    ],
+    
+    "action": {
+      "default_popup": "popup.html",
+      "default_title": "View Saved Pages"
+    }
+  }
