@@ -1,5 +1,8 @@
 # Research Assistant Chrome Extension 🧠
 
+![Research Assistant Branding](src/assets/icons/ext-icon-128.png)
+
+
 **Research Assistant** is a smart Chrome Extension that automatically curates your reading list. Instead of manually bookmarking, it intelligently detects when you are deeply engaged with content and saves it for you.
 
 ## ✨ Features
@@ -24,10 +27,17 @@
 
 ```text
 /
-├── content.js       # The "Brain": Injected script that tracks behavior
-├── popup.js         # The "UI Logic": Handles the extension popup
-├── popup.html       # The "View": Layout for the popup
-└── manifest.json    # The "Config": Extension capability definitions
+├── manifest.json
+├── src/
+│   ├── assets/
+│   │   └── icons/          # Extension and action icons
+│   ├── content/
+│   │   └── index.js        # The "Brain": behavior tracking
+│   ├── popup/
+│   │   ├── index.html      # The "View": popup layout
+│   │   └── index.js        # The "UI Logic": popup interaction
+│   └── utils/              # Helper utilities
+└── LICENSE
 ```
 
 ## 🚀 Scalability & Future Roadmap
