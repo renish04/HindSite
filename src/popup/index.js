@@ -71,9 +71,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
     
-    // Click to open URL
+    // Click to open URL (focus existing tab if already open)
     card.addEventListener('click', () => {
-      chrome.tabs.create({ url: page.url });
+      openPageUrl(page.url);
     });
     
     return card;
@@ -175,6 +175,62 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('🗑️ All pages cleared');
         showEmptyState();
       });
+    }
+  }
+  
+  // ============================================
+  // OPEN URL (focus existing tab if already open)
+  // ============================================
+  
+  function openPageUrl(url) {
+    // Normalize target URL for exact comparison
+    const targetUrl = normalizeUrl(url);
+    
+    // Get base URL (without fragment) for efficient querying
+    // Chrome's query ignores fragments, so this will return all tabs with same base URL
+    const baseUrl = getBaseUrlWithoutFragment(url);
+    
+    // Query tabs matching the base URL (Chrome ignores fragments in query)
+    chrome.tabs.query({ url: baseUrl }, (tabs) => {
+      if (tabs && tabs.length > 0) {
+        // Find exact URL match (including fragment) by comparing normalized URLs
+        const exactMatch = tabs.find(tab => normalizeUrl(tab.url) === targetUrl);
+        
+        if (exactMatch) {
+          // Focus the exact matching tab
+          chrome.tabs.update(exactMatch.id, { active: true });
+          chrome.windows.update(exactMatch.windowId, { focused: true });
+          return;
+        }
+      }
+      
+      // No exact match found, create new tab
+      chrome.tabs.create({ url });
+    });
+  }
+  
+  // Normalize URL for exact comparison (preserves fragments)
+  function normalizeUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      // Return full href including fragment for exact matching
+      return urlObj.href;
+    } catch (e) {
+      return url;
+    }
+  }
+  
+  // Get base URL without fragment for querying
+  // Chrome's tabs.query ignores fragments, so this efficiently gets candidate tabs
+  function getBaseUrlWithoutFragment(url) {
+    try {
+      const urlObj = new URL(url);
+      // Return URL without fragment - Chrome will match tabs with this base regardless of fragment
+      return `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}${urlObj.search}`;
+    } catch (e) {
+      // Fallback: try to remove fragment manually
+      const hashIndex = url.indexOf('#');
+      return hashIndex !== -1 ? url.substring(0, hashIndex) : url;
     }
   }
   
