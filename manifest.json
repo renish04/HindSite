@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Research Assistant",
+  "name": "HindSite",
   "version": "1.0.0",
   "description": "Automatically saves important webpages based on time and scroll behavior",
   "permissions": [

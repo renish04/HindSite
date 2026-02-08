@@ -1,5 +1,5 @@
 // ============================================
-// RESEARCH ASSISTANT - Content Script
+// HindSite - Content Script
 // Tracks time, scroll, and extracts content
 // ============================================
 
@@ -19,7 +19,7 @@ let hasExtracted = false;
 
 let checkInterval = null;
 
-console.log('🔍 Research Assistant: Monitoring started');
+console.log('🔍 HindSite: Monitoring started');
 
 // ============================================
 // PAGE ANALYSIS
@@ -232,7 +232,7 @@ function saveToStorage(pageData) {
 
 function showNotification() {
   const notification = document.createElement('div');
-  notification.textContent = '✅ Page saved to Research Assistant';
+  notification.textContent = 'Page saved to HindSite';
   notification.style.cssText = `
     position: fixed;
     top: 20px;

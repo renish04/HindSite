@@ -1,9 +1,9 @@
-# Research Assistant Chrome Extension 🧠
+# HindSite Chrome Extension 🧠
 
-![Research Assistant Branding](src/assets/icons/ext-icon-128.png)
+![HindSite Branding](src/assets/icons/ext-icon-128.png)
 
 
-**Research Assistant** is a smart Chrome Extension that automatically curates your reading list. Instead of manually bookmarking, it intelligently detects when you are deeply engaged with content and saves it for you.
+**HindSite** is a smart Chrome Extension that automatically curates your reading list. Instead of manually bookmarking, it intelligently detects when you are deeply engaged with content and saves it for you.
 
 ## ✨ Features
 

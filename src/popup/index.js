@@ -1,5 +1,5 @@
 // ============================================
-// RESEARCH ASSISTANT - Popup Script
+// HindSite - Popup Script
 // Displays saved pages and handles user actions
 // ============================================
 
@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Filename with timestamp
       const timestamp = new Date().toISOString().split('T')[0];
-      link.download = `research-assistant-export-${timestamp}.json`;
+      link.download = `HindSite-export-${timestamp}.json`;
       
       // Trigger download
       document.body.appendChild(link);
