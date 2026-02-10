@@ -7,17 +7,19 @@
 // LOAD AND DISPLAY SAVED PAGES
 // ============================================
 
+let currentPages = [];
+
 document.addEventListener('DOMContentLoaded', () => {
     loadSavedPages();
     
     // Attach event listeners to buttons
-    document.getElementById('exportBtn').addEventListener('click', exportAllPages);
     document.getElementById('clearBtn').addEventListener('click', clearAllPages);
   });
   
   function loadSavedPages() {
     chrome.storage.local.get(['savedPages'], (result) => {
       const savedPages = result.savedPages || [];
+      currentPages = savedPages;
       
       if (savedPages.length === 0) {
         showEmptyState();
@@ -61,7 +63,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Build card HTML
     card.innerHTML = `
-      <div class="page-url" title="${page.url}">${domain}</div>
+      <div class="page-header">
+        <div class="page-url" title="${page.url}">${domain}</div>
+        <button class="icon-btn delete-btn" type="button" aria-label="Remove saved page" title="Remove">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 4h6a1 1 0 0 1 .96.73L16.8 7H19a.75.75 0 0 1 0 1.5h-1.02l-.7 11.02A2.25 2.25 0 0 1 15.04 22H8.96a2.25 2.25 0 0 1-2.24-2.48L7.02 8.5H6A.75.75 0 0 1 6 7h2.2l.84-2.27A1 1 0 0 1 9 4Zm1.75 5.75a.75.75 0 0 0-1.5.03l.25 8a.75.75 0 1 0 1.5-.05l-.25-7.98Zm4 0a.75.75 0 0 0-1.5.03l-.25 8a.75.75 0 1 0 1.5-.05l.25-7.98Z" stroke="currentColor" stroke-width="0.6" />
+          </svg>
+        </button>
+      </div>
       <div class="page-preview">${preview}</div>
       <div class="page-meta">
         <div class="meta-item">⏱️ ${page.metadata.timeSpent}s</div>
@@ -70,6 +79,14 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="meta-item">📅 ${formattedDate}</div>
       </div>
     `;
+
+    // Delete button should not trigger card click
+    const deleteBtn = card.querySelector('.delete-btn');
+    deleteBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteSavedPage(page.url);
+    });
     
     // Click to open URL (focus existing tab if already open)
     card.addEventListener('click', () => {
@@ -124,44 +141,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   // ============================================
-  // EXPORT FUNCTIONALITY
-  // ============================================
-  
-  function exportAllPages() {
-    chrome.storage.local.get(['savedPages'], (result) => {
-      const savedPages = result.savedPages || [];
-      
-      if (savedPages.length === 0) {
-        alert('No pages to export!');
-        return;
-      }
-      
-      // Create JSON file
-      const dataStr = JSON.stringify(savedPages, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      
-      // Create download link
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // Filename with timestamp
-      const timestamp = new Date().toISOString().split('T')[0];
-      link.download = `HindSite-export-${timestamp}.json`;
-      
-      // Trigger download
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Clean up
-      URL.revokeObjectURL(url);
-      
-      console.log(`✅ Exported ${savedPages.length} pages`);
-    });
-  }
-  
-  // ============================================
   // CLEAR ALL FUNCTIONALITY
   // ============================================
   
@@ -172,10 +151,39 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (confirmed) {
       chrome.storage.local.set({ savedPages: [] }, () => {
+        currentPages = [];
         console.log('🗑️ All pages cleared');
         showEmptyState();
       });
     }
+  }
+
+  // ============================================
+  // DELETE SINGLE PAGE
+  // ============================================
+
+  function deleteSavedPage(url) {
+    const confirmed = confirm(
+      'Remove this saved page?\n\nThis will delete it from your HindSite list.'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const nextPages = currentPages.filter((p) => p.url !== url);
+
+    chrome.storage.local.set({ savedPages: nextPages }, () => {
+      currentPages = nextPages;
+
+      if (currentPages.length === 0) {
+        showEmptyState();
+        return;
+      }
+
+      displayPages(currentPages);
+      updateStatistics(currentPages);
+    });
   }
   
   // ============================================
