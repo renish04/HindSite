@@ -21,8 +21,11 @@ let checkInterval = null;
 
 // Overlay state
 let hsOverlayRoot = null;
+let hsOverlayPanel = null;
 let hsOverlayInput = null;
 let hsOverlayVisible = false;
+let hsOverlayMicBtn = null;
+let hsOverlayHideTimer = null;
 
 // Speech recognition state (overlay)
 let hsRecognition = null;
@@ -273,6 +276,7 @@ function createOverlayIfNeeded() {
 
   hsOverlayRoot = document.createElement('div');
   hsOverlayRoot.id = 'hindsite-overlay-root';
+  hsOverlayRoot.className = 'hs-root';
   hsOverlayRoot.style.cssText = `
     position: fixed;
     left: 50%;
@@ -283,7 +287,36 @@ function createOverlayIfNeeded() {
     display: none;
   `;
 
+  // Inject lightweight CSS once (for animations / mic pulse)
+  if (!document.getElementById('hindsite-overlay-style')) {
+    const style = document.createElement('style');
+    style.id = 'hindsite-overlay-style';
+    style.textContent = `
+      #hindsite-overlay-root .hs-panel {
+        opacity: 0;
+        transform: translateY(18px) scale(0.985);
+        transition: transform 180ms cubic-bezier(.2,.9,.2,1.15), opacity 180ms ease-out;
+        will-change: transform, opacity;
+      }
+      #hindsite-overlay-root.hs-visible .hs-panel {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+      @keyframes hsMicPulse {
+        0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.22); }
+        70% { box-shadow: 0 0 0 10px rgba(255,255,255,0); }
+        100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+      }
+      #hindsite-overlay-root .hs-mic.listening {
+        border-color: rgba(255,255,255,0.6) !important;
+        animation: hsMicPulse 1.1s ease-in-out infinite;
+      }
+    `;
+    document.documentElement.appendChild(style);
+  }
+
   const panel = document.createElement('div');
+  panel.className = 'hs-panel';
   panel.style.cssText = `
     pointer-events: auto;
     min-width: 420px;
@@ -304,6 +337,7 @@ function createOverlayIfNeeded() {
     color: #e5e7eb;
     font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
   `;
+  hsOverlayPanel = panel;
 
   const hint = document.createElement('div');
   hint.textContent = 'HindSite quick search';
@@ -315,9 +349,9 @@ function createOverlayIfNeeded() {
     margin-right: 4px;
   `;
 
-  const input = document.createElement('input');
-  input.type = 'text';
+  const input = document.createElement('textarea');
   input.placeholder = 'Type to search (no action yet)...';
+  input.rows = 1;
   input.style.cssText = `
     flex: 1;
     border: none;
@@ -327,11 +361,17 @@ function createOverlayIfNeeded() {
     font-size: 14px;
     font-weight: 400;
     padding: 3px 0;
+    resize: none;
+    overflow: hidden;
+    min-height: 20px;
+    max-height: 120px;
+    line-height: 1.35;
   `;
 
   const micBtn = document.createElement('button');
   micBtn.type = 'button';
   micBtn.title = 'Voice input';
+  micBtn.className = 'hs-mic';
   micBtn.style.cssText = `
     flex: 0 0 auto;
     width: 26px;
@@ -374,12 +414,17 @@ function createOverlayIfNeeded() {
   document.documentElement.appendChild(hsOverlayRoot);
 
   hsOverlayInput = input;
+  hsOverlayMicBtn = micBtn;
 
   // ESC closes overlay
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       hideOverlay();
     }
+  });
+
+  input.addEventListener('input', () => {
+    autoResizeOverlayInput();
   });
 
   micBtn.addEventListener('click', () => {
@@ -393,10 +438,20 @@ function showOverlay() {
 
   hsOverlayRoot.style.display = 'block';
   hsOverlayVisible = true;
+  if (hsOverlayHideTimer) {
+    clearTimeout(hsOverlayHideTimer);
+    hsOverlayHideTimer = null;
+  }
+
+  // Trigger pop-in animation
+  requestAnimationFrame(() => {
+    hsOverlayRoot && hsOverlayRoot.classList.add('hs-visible');
+  });
 
   // Focus input with minimal delay to avoid layout races
   setTimeout(() => {
     hsOverlayInput && hsOverlayInput.focus();
+    autoResizeOverlayInput();
   }, 0);
 
   // Auto-start voice input when overlay opens, if supported
@@ -405,9 +460,14 @@ function showOverlay() {
 
 function hideOverlay() {
   if (!hsOverlayRoot) return;
-  hsOverlayRoot.style.display = 'none';
+  hsOverlayRoot.classList.remove('hs-visible');
   hsOverlayVisible = false;
   stopOverlaySpeech();
+
+  // Let the exit transition finish, then hide
+  hsOverlayHideTimer = setTimeout(() => {
+    if (hsOverlayRoot) hsOverlayRoot.style.display = 'none';
+  }, 190);
 }
 
 function toggleOverlay() {
@@ -441,6 +501,7 @@ function ensureSpeechSupport() {
 
     hsRecognition.onstart = () => {
       hsRecognizing = true;
+      if (hsOverlayMicBtn) hsOverlayMicBtn.classList.add('listening');
       if (hsOverlayInput) {
         hsSpeechBaseText = hsOverlayInput.value || '';
       }
@@ -461,15 +522,18 @@ function ensureSpeechSupport() {
         const base = hsSpeechBaseText ? hsSpeechBaseText + ' ' : '';
         const combined = (base + finalText + ' ' + interimText).trim();
         hsOverlayInput.value = combined;
+        autoResizeOverlayInput();
       }
     };
 
     hsRecognition.onerror = () => {
       hsRecognizing = false;
+      if (hsOverlayMicBtn) hsOverlayMicBtn.classList.remove('listening');
     };
 
     hsRecognition.onend = () => {
       hsRecognizing = false;
+      if (hsOverlayMicBtn) hsOverlayMicBtn.classList.remove('listening');
     };
   }
   return hsSpeechSupported;
@@ -501,4 +565,13 @@ function toggleOverlaySpeech() {
   } else {
     startOverlaySpeech();
   }
+}
+
+function autoResizeOverlayInput() {
+  if (!hsOverlayInput) return;
+  hsOverlayInput.style.height = 'auto';
+  const maxHeight = 120;
+  const nextHeight = Math.min(hsOverlayInput.scrollHeight, maxHeight);
+  hsOverlayInput.style.height = `${nextHeight}px`;
+  hsOverlayInput.style.overflowY = hsOverlayInput.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }

@@ -9,14 +9,25 @@ let qsSpeechSupported = null;
 document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('quickSearchInput');
   const micBtn = document.getElementById('quickSearchMicBtn');
+  const shell = document.querySelector('.shell');
+
+  // Pop-in animation
+  if (shell) {
+    requestAnimationFrame(() => shell.classList.add('is-open'));
+  }
 
   if (input) {
     input.focus();
+    autoResizeQuickInput();
 
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         window.close();
       }
+    });
+
+    input.addEventListener('input', () => {
+      autoResizeQuickInput();
     });
   }
 
@@ -43,6 +54,8 @@ function ensureQuickSearchSpeechSupport() {
 
     qsRecognition.onstart = () => {
       qsRecognizing = true;
+      const micBtn = document.getElementById('quickSearchMicBtn');
+      if (micBtn) micBtn.classList.add('listening');
       const input = document.getElementById('quickSearchInput');
       qsSpeechBaseText = input && input.value ? input.value : '';
     };
@@ -65,14 +78,19 @@ function ensureQuickSearchSpeechSupport() {
       const base = qsSpeechBaseText ? qsSpeechBaseText + ' ' : '';
       const combined = (base + finalText + ' ' + interimText).trim();
       input.value = combined;
+      autoResizeQuickInput();
     };
 
     qsRecognition.onerror = () => {
       qsRecognizing = false;
+      const micBtn = document.getElementById('quickSearchMicBtn');
+      if (micBtn) micBtn.classList.remove('listening');
     };
 
     qsRecognition.onend = () => {
       qsRecognizing = false;
+      const micBtn = document.getElementById('quickSearchMicBtn');
+      if (micBtn) micBtn.classList.remove('listening');
     };
   }
   return qsSpeechSupported;
@@ -104,19 +122,14 @@ function toggleQuickSearchSpeech() {
   }
 }
 
-// HindSite Quick Search Window
-// For now this is purely visual: focus the input and allow ESC to close.
-
-document.addEventListener('DOMContentLoaded', () => {
+function autoResizeQuickInput() {
   const input = document.getElementById('quickSearchInput');
-  if (input) {
-    input.focus();
+  if (!input) return;
 
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        window.close();
-      }
-    });
-  }
-});
+  input.style.height = 'auto';
+  const maxHeight = 120;
+  const nextHeight = Math.min(input.scrollHeight, maxHeight);
+  input.style.height = `${nextHeight}px`;
+  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
+}
 
