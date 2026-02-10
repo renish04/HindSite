@@ -12,6 +12,17 @@
     "48": "src/assets/icons/ext-icon-48.png",
     "128": "src/assets/icons/ext-icon-128.png"
   },
+  "background": {
+    "service_worker": "src/background/index.js"
+  },
+  "commands": {
+    "toggle_overlay": {
+      "suggested_key": {
+        "default": "Alt+C"
+      },
+      "description": "Toggle HindSite quick search overlay"
+    }
+  },
   "content_scripts": [
     {
       "matches": [

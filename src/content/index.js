@@ -19,6 +19,11 @@ let hasExtracted = false;
 
 let checkInterval = null;
 
+// Overlay state
+let hsOverlayRoot = null;
+let hsOverlayInput = null;
+let hsOverlayVisible = false;
+
 console.log('🔍 HindSite: Monitoring started');
 
 // ============================================
@@ -252,3 +257,130 @@ function showNotification() {
     notification.remove();
   }, 3000);
 }
+
+// ============================================
+// OVERLAY SEARCH BAR (TOGGLED BY SHORTCUT)
+// ============================================
+
+function createOverlayIfNeeded() {
+  if (hsOverlayRoot) return;
+
+  hsOverlayRoot = document.createElement('div');
+  hsOverlayRoot.id = 'hindsite-overlay-root';
+  hsOverlayRoot.style.cssText = `
+    position: fixed;
+    left: 50%;
+    bottom: 32px;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    pointer-events: none;
+    display: none;
+  `;
+
+  const panel = document.createElement('div');
+  panel.style.cssText = `
+    pointer-events: auto;
+    min-width: 420px;
+    max-width: 560px;
+    width: 46vw;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border-radius: 999px;
+    background: radial-gradient(circle at top left, rgba(15,23,42,0.92), rgba(15,23,42,0.86));
+    box-shadow:
+      0 18px 45px rgba(15,23,42,0.85),
+      0 0 0 1px rgba(148,163,184,0.45);
+    backdrop-filter: blur(18px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid rgba(148,163,184,0.65);
+    color: #e5e7eb;
+    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+  `;
+
+  const hint = document.createElement('div');
+  hint.textContent = 'HindSite quick search';
+  hint.style.cssText = `
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #9ca3af;
+    margin-right: 4px;
+  `;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Type to search (no action yet)...';
+  input.style.cssText = `
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #f9fafb;
+    font-size: 14px;
+    font-weight: 400;
+    padding: 3px 0;
+  `;
+
+  const kbd = document.createElement('div');
+  kbd.textContent = 'Esc';
+  kbd.title = 'Close';
+  kbd.style.cssText = `
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(148,163,184,0.6);
+    background: rgba(15,23,42,0.9);
+    color: #e5e7eb;
+    cursor: default;
+  `;
+
+  panel.appendChild(hint);
+  panel.appendChild(input);
+  panel.appendChild(kbd);
+  hsOverlayRoot.appendChild(panel);
+  document.documentElement.appendChild(hsOverlayRoot);
+
+  hsOverlayInput = input;
+
+  // ESC closes overlay
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      hideOverlay();
+    }
+  });
+}
+
+function showOverlay() {
+  createOverlayIfNeeded();
+  if (!hsOverlayRoot) return;
+
+  hsOverlayRoot.style.display = 'block';
+  hsOverlayVisible = true;
+
+  // Focus input with minimal delay to avoid layout races
+  setTimeout(() => {
+    hsOverlayInput && hsOverlayInput.focus();
+  }, 0);
+}
+
+function hideOverlay() {
+  if (!hsOverlayRoot) return;
+  hsOverlayRoot.style.display = 'none';
+  hsOverlayVisible = false;
+}
+
+function toggleOverlay() {
+  if (hsOverlayVisible) {
+    hideOverlay();
+  } else {
+    showOverlay();
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message && message.type === 'TOGGLE_OVERLAY') {
+    toggleOverlay();
+  }
+});
