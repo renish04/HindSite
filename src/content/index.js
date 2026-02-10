@@ -24,6 +24,12 @@ let hsOverlayRoot = null;
 let hsOverlayInput = null;
 let hsOverlayVisible = false;
 
+// Speech recognition state (overlay)
+let hsRecognition = null;
+let hsRecognizing = false;
+let hsSpeechBaseText = '';
+let hsSpeechSupported = null;
+
 console.log('🔍 HindSite: Monitoring started');
 
 // ============================================
@@ -323,22 +329,47 @@ function createOverlayIfNeeded() {
     padding: 3px 0;
   `;
 
-  const kbd = document.createElement('div');
-  kbd.textContent = '➤';
-  kbd.title = 'Send';
-  kbd.style.cssText = `
+  const micBtn = document.createElement('button');
+  micBtn.type = 'button';
+  micBtn.title = 'Voice input';
+  micBtn.style.cssText = `
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    border: 1px solid rgba(148,163,184,0.5);
+    background: rgba(15,23,42,0.9);
+    color: #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+  `;
+  micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 3a2.5 2.5 0 0 1 2.5 2.5v5A2.5 2.5 0 0 1 12 13a2.5 2.5 0 0 1-2.5-2.5v-5A2.5 2.5 0 0 1 12 3Zm0 14a5 5 0 0 0 5-5 .75.75 0 0 1 1.5 0A6.5 6.5 0 0 1 12.75 18.47V21h-1.5v-2.53A6.5 6.5 0 0 1 5.5 12a.75.75 0 0 1 1.5 0 5 5 0 0 0 5 5Z" fill="currentColor"/></svg>';
+
+  const sendChip = document.createElement('div');
+  sendChip.textContent = '➤';
+  sendChip.title = 'Send';
+  sendChip.style.cssText = `
+    flex: 0 0 auto;
     font-size: 11px;
-    padding: 4px 8px;
+    width: 26px;
+    height: 26px;
     border-radius: 999px;
     border: 1px solid rgba(148,163,184,0.6);
     background: rgba(15,23,42,0.9);
     color: #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: default;
   `;
 
   panel.appendChild(hint);
   panel.appendChild(input);
-  panel.appendChild(kbd);
+  panel.appendChild(micBtn);
+  panel.appendChild(sendChip);
   hsOverlayRoot.appendChild(panel);
   document.documentElement.appendChild(hsOverlayRoot);
 
@@ -349,6 +380,10 @@ function createOverlayIfNeeded() {
     if (e.key === 'Escape') {
       hideOverlay();
     }
+  });
+
+  micBtn.addEventListener('click', () => {
+    toggleOverlaySpeech();
   });
 }
 
@@ -363,12 +398,16 @@ function showOverlay() {
   setTimeout(() => {
     hsOverlayInput && hsOverlayInput.focus();
   }, 0);
+
+  // Auto-start voice input when overlay opens, if supported
+  startOverlaySpeech();
 }
 
 function hideOverlay() {
   if (!hsOverlayRoot) return;
   hsOverlayRoot.style.display = 'none';
   hsOverlayVisible = false;
+  stopOverlaySpeech();
 }
 
 function toggleOverlay() {
@@ -384,3 +423,82 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     toggleOverlay();
   }
 });
+
+// ============================================
+// SPEECH RECOGNITION (OVERLAY)
+// ============================================
+
+function ensureSpeechSupport() {
+  if (hsSpeechSupported !== null) return hsSpeechSupported;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  hsSpeechSupported = !!SpeechRecognition;
+  if (hsSpeechSupported && !hsRecognition) {
+    const SR = SpeechRecognition;
+    hsRecognition = new SR();
+    hsRecognition.lang = navigator.language || 'en-US';
+    hsRecognition.continuous = false;
+    hsRecognition.interimResults = true;
+
+    hsRecognition.onstart = () => {
+      hsRecognizing = true;
+      if (hsOverlayInput) {
+        hsSpeechBaseText = hsOverlayInput.value || '';
+      }
+    };
+
+    hsRecognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const res = event.results[i];
+        if (res.isFinal) {
+          finalText += res[0].transcript;
+        } else {
+          interimText += res[0].transcript;
+        }
+      }
+      if (hsOverlayInput) {
+        const base = hsSpeechBaseText ? hsSpeechBaseText + ' ' : '';
+        const combined = (base + finalText + ' ' + interimText).trim();
+        hsOverlayInput.value = combined;
+      }
+    };
+
+    hsRecognition.onerror = () => {
+      hsRecognizing = false;
+    };
+
+    hsRecognition.onend = () => {
+      hsRecognizing = false;
+    };
+  }
+  return hsSpeechSupported;
+}
+
+function startOverlaySpeech() {
+  if (!ensureSpeechSupport()) return;
+  if (!hsRecognition || hsRecognizing) return;
+  try {
+    hsRecognition.start();
+  } catch (e) {
+    // ignore repeated start errors
+  }
+}
+
+function stopOverlaySpeech() {
+  if (hsRecognition && hsRecognizing) {
+    try {
+      hsRecognition.stop();
+    } catch (e) {
+      // ignore
+    }
+  }
+}
+
+function toggleOverlaySpeech() {
+  if (hsRecognizing) {
+    stopOverlaySpeech();
+  } else {
+    startOverlaySpeech();
+  }
+}
