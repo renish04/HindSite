@@ -6,6 +6,10 @@ let qsRecognizing = false;
 let qsSpeechBaseText = '';
 let qsSpeechSupported = null;
 
+(function () {
+  if (window.self === window.top) document.body.classList.add('standalone');
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('quickSearchInput');
   const micBtn = document.getElementById('quickSearchMicBtn');

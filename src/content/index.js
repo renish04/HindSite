@@ -323,18 +323,16 @@ function createOverlayIfNeeded() {
     max-width: 560px;
     width: 46vw;
     box-sizing: border-box;
-    padding: 10px 12px;
+    padding: 12px 14px;
     border-radius: 999px;
-    background: radial-gradient(circle at top left, rgba(15,23,42,0.92), rgba(15,23,42,0.86));
-    box-shadow:
-      0 18px 45px rgba(15,23,42,0.85),
-      0 0 0 1px rgba(148,163,184,0.45);
-    backdrop-filter: blur(18px);
+    background: linear-gradient(135deg, rgba(30,58,95,0.96) 0%, rgba(45,74,111,0.94) 50%, rgba(51,65,85,0.92) 100%);
+    box-shadow: 0 20px 48px rgba(30,58,95,0.4), 0 0 0 1px rgba(148,163,184,0.35);
+    border: 1px solid rgba(148,163,184,0.5);
+    backdrop-filter: blur(22px);
     display: flex;
     align-items: center;
     gap: 10px;
-    border: 1px solid rgba(148,163,184,0.65);
-    color: #e5e7eb;
+    color: #e2e8f0;
     font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
   `;
   hsOverlayPanel = panel;
@@ -345,8 +343,10 @@ function createOverlayIfNeeded() {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    color: #9ca3af;
+    color: #94a3b8;
     margin-right: 4px;
+    flex: 0 0 auto;
+    white-space: nowrap;
   `;
 
   const input = document.createElement('textarea');
@@ -357,7 +357,7 @@ function createOverlayIfNeeded() {
     border: none;
     outline: none;
     background: transparent;
-    color: #f9fafb;
+    color: #f1f5f9;
     font-size: 14px;
     font-weight: 400;
     padding: 3px 0;
@@ -378,8 +378,8 @@ function createOverlayIfNeeded() {
     height: 26px;
     border-radius: 999px;
     border: 1px solid rgba(148,163,184,0.5);
-    background: rgba(15,23,42,0.9);
-    color: #e5e7eb;
+    background: rgba(30,58,95,0.9);
+    color: #e2e8f0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -393,17 +393,18 @@ function createOverlayIfNeeded() {
   sendChip.title = 'Send';
   sendChip.style.cssText = `
     flex: 0 0 auto;
-    font-size: 11px;
+    font-size: 12px;
     width: 26px;
     height: 26px;
     border-radius: 999px;
     border: 1px solid rgba(148,163,184,0.6);
-    background: rgba(15,23,42,0.9);
-    color: #e5e7eb;
+    background: rgba(30,58,95,0.9);
+    color: #e2e8f0;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: default;
+    user-select: none;
   `;
 
   panel.appendChild(hint);

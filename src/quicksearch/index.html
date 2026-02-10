@@ -18,8 +18,22 @@
       box-sizing: border-box;
     }
 
+    body.standalone {
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 32px;
+    }
+
+    body.standalone .shell {
+      position: relative;
+      z-index: 1;
+    }
+
     .shell {
-      width: min(520px, 96vw);
+      min-width: 420px;
+      max-width: 560px;
+      width: 46vw;
+      box-sizing: border-box;
       padding: 12px 14px;
       border-radius: 999px;
       background: linear-gradient(135deg, rgba(30,58,95,0.96) 0%, rgba(45,74,111,0.94) 50%, rgba(51,65,85,0.92) 100%);
