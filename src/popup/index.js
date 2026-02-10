@@ -14,6 +14,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Attach event listeners to buttons
     document.getElementById('clearBtn').addEventListener('click', clearAllPages);
+    const quickBtn = document.getElementById('quickSearchBtn');
+    if (quickBtn) {
+      quickBtn.addEventListener('click', openQuickSearchOverlay);
+    }
   });
   
   function loadSavedPages() {
@@ -105,13 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const totalPages = pages.length;
     document.getElementById('totalPages').textContent = totalPages;
     
-    // Total words
-    const totalWords = pages.reduce((sum, page) => sum + page.metadata.wordCount, 0);
-    document.getElementById('totalWords').textContent = totalWords.toLocaleString();
-    
     // Average time spent
     const totalTime = pages.reduce((sum, page) => sum + page.metadata.timeSpent, 0);
-    const avgTime = Math.round(totalTime / totalPages);
+    const avgTime = Math.round(totalTime / Math.max(totalPages, 1));
     document.getElementById('avgTime').textContent = avgTime + 's';
   }
   
@@ -136,7 +136,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Update stats to 0
     document.getElementById('totalPages').textContent = '0';
-    document.getElementById('totalWords').textContent = '0';
     document.getElementById('avgTime').textContent = '0s';
   }
   
@@ -214,6 +213,24 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // No exact match found, create new tab
       chrome.tabs.create({ url });
+    });
+  }
+
+  // ============================================
+  // QUICK SEARCH OVERLAY TRIGGER (FROM POPUP)
+  // ============================================
+
+  function openQuickSearchOverlay() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs && tabs[0];
+      if (!tab || !tab.id) return;
+
+      // Toggle the same overlay used by the Alt+C shortcut
+      chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_OVERLAY' }, () => {
+        // Ignore errors when no content script is available on the page
+        // (e.g. chrome:// pages, Chrome Web Store, etc.)
+        void chrome.runtime.lastError;
+      });
     });
   }
   

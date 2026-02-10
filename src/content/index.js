@@ -324,8 +324,8 @@ function createOverlayIfNeeded() {
   `;
 
   const kbd = document.createElement('div');
-  kbd.textContent = 'Esc';
-  kbd.title = 'Close';
+  kbd.textContent = '↑';
+  kbd.title = 'Send';
   kbd.style.cssText = `
     font-size: 11px;
     padding: 4px 8px;
