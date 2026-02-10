@@ -350,7 +350,7 @@ function createOverlayIfNeeded() {
   `;
 
   const input = document.createElement('textarea');
-  input.placeholder = 'Type to search (no action yet)...';
+  input.placeholder = 'Type to search...';
   input.rows = 1;
   input.style.cssText = `
     flex: 1;
