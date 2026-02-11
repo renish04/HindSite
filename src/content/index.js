@@ -222,24 +222,51 @@ function extractContent() {
 // ============================================
 // STORAGE
 // ============================================
+const API_BASE = 'http://localhost:8000';
+
+async function sendToBackend(pageData) {
+  try {
+    const response = await fetch(`${API_BASE}/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: pageData.url,
+        content: pageData.content,
+        metadata: pageData.metadata
+      })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('HindSite: Page sent to backend:', result.status);
+    } else {
+      console.log('HindSite: Backend capture failed:', response.status, response.statusText);
+    }
+  } catch (error) {
+    console.log('HindSite: Backend unavailable, saved locally only');
+  }
+}
+
 function saveToStorage(pageData) {
   chrome.storage.local.get(['savedPages'], (result) => {
     const savedPages = result.savedPages || [];
-    
-    const urlExists = savedPages.some(page => page.url === pageData.url);
-    
+
+    const urlExists = savedPages.some((page) => page.url === pageData.url);
+
     if (urlExists) {
       console.log('⚠️ Page already saved, skipping duplicate');
       return;
     }
-    
+
     savedPages.push(pageData);
-    
+
     chrome.storage.local.set({ savedPages: savedPages }, () => {
       console.log('✅ Page saved to storage!');
       console.log(`   Total pages saved: ${savedPages.length}`);
-      
       showNotification();
+
+      // Also send to backend (primary storage is local; backend is additional)
+      sendToBackend(pageData);
     });
   });
 }

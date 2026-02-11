@@ -1,5 +1,7 @@
 // HindSite Quick Search Window
-// Focus input, ESC closes window, and support voice input via Web Speech API.
+// Focus input, ESC closes window, voice input, and backend search (tab switch / semantic).
+
+const API_BASE = 'http://localhost:8000';
 
 let qsRecognition = null;
 let qsRecognizing = false;
@@ -10,12 +12,163 @@ let qsSpeechSupported = null;
   if (window.self === window.top) document.body.classList.add('standalone');
 })();
 
+async function performSearch(query) {
+  if (!query.trim()) return;
+
+  const tabs = await chrome.tabs.query({});
+  const openTabs = tabs.map((t) => ({
+    tab_id: t.id,
+    window_id: t.windowId,
+    url: t.url || '',
+    title: t.title || ''
+  }));
+
+  try {
+    const response = await fetch(`${API_BASE}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: query.trim(),
+        limit: 3,
+        open_tabs: openTabs
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.query_type === 'tab_switch' && data.matched_tab) {
+      await chrome.tabs.update(data.matched_tab.tab_id, { active: true });
+      await chrome.windows.update(data.matched_tab.window_id, { focused: true });
+      window.close();
+    } else if (data.query_type === 'semantic_search' && data.results) {
+      displaySearchResults(data.results);
+    } else {
+      displayNoResults();
+    }
+  } catch (error) {
+    console.error('Search failed:', error);
+    displayError('Search failed. Is the backend running?');
+  }
+}
+
+function displaySearchResults(results) {
+  let container = document.getElementById('resultsContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'resultsContainer';
+    container.style.cssText = `
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      max-height: 300px;
+      overflow-y: auto;
+      background: rgba(20, 20, 35, 0.98);
+      border-radius: 12px 12px 0 0;
+      padding: 10px;
+      margin-bottom: 5px;
+    `;
+    const shell = document.querySelector('.shell');
+    if (shell && shell.parentElement) {
+      shell.parentElement.insertBefore(container, shell);
+    } else {
+      document.body.appendChild(container);
+    }
+  }
+
+  if (results.length === 0) {
+    container.innerHTML = `
+      <div style="color: #888; text-align: center; padding: 20px;">
+        No matching pages found
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = results
+    .map(
+      (r) => `
+    <div class="result-card" data-url="${escapeHtml(r.url)}" style="
+      background: rgba(255,255,255,0.05);
+      padding: 12px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    ">
+      <div style="color: #fff; font-weight: 500; margin-bottom: 4px; font-size: 14px;">
+        ${escapeHtml(r.title || r.domain || '')}
+      </div>
+      <div style="color: #888; font-size: 11px; margin-bottom: 6px;">
+        ${escapeHtml(r.domain)} • ${Math.round((r.similarity || 0) * 100)}% match
+      </div>
+      <div style="color: #aaa; font-size: 12px; line-height: 1.4;">
+        ${escapeHtml(r.snippet || '')}
+      </div>
+    </div>
+  `
+    )
+    .join('');
+
+  container.querySelectorAll('.result-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      chrome.tabs.create({ url: card.dataset.url });
+      window.close();
+    });
+    card.addEventListener('mouseenter', () => {
+      card.style.background = 'rgba(255,255,255,0.1)';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.background = 'rgba(255,255,255,0.05)';
+    });
+  });
+}
+
+function escapeHtml(text) {
+  if (text == null) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function displayNoResults() {
+  displaySearchResults([]);
+}
+
+function displayError(message) {
+  let container = document.getElementById('resultsContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'resultsContainer';
+    container.style.cssText = `
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 10px;
+      margin-bottom: 5px;
+    `;
+    const shell = document.querySelector('.shell');
+    if (shell && shell.parentElement) {
+      shell.parentElement.insertBefore(container, shell);
+    } else {
+      document.body.appendChild(container);
+    }
+  }
+  container.innerHTML = `
+    <div style="color: #ff6b6b; text-align: center; padding: 20px;">
+      ${escapeHtml(message)}
+    </div>
+  `;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('quickSearchInput');
   const micBtn = document.getElementById('quickSearchMicBtn');
   const shell = document.querySelector('.shell');
 
-  // Pop-in animation
   if (shell) {
     requestAnimationFrame(() => shell.classList.add('is-open'));
   }
@@ -27,6 +180,10 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         window.close();
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        performSearch(input.value);
       }
     });
 
@@ -41,7 +198,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Auto-start voice input when window opens
+  const sendChip = document.querySelector('.send-chip');
+  if (sendChip) {
+    sendChip.addEventListener('click', () => {
+      performSearch(input ? input.value : '');
+    });
+  }
+
   startQuickSearchSpeech();
 });
 
