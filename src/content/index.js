@@ -325,8 +325,8 @@ function createOverlayIfNeeded() {
     box-sizing: border-box;
     padding: 12px 14px;
     border-radius: 999px;
-    background: linear-gradient(135deg, rgba(30,58,95,0.96) 0%, rgba(45,74,111,0.94) 50%, rgba(51,65,85,0.92) 100%);
-    box-shadow: 0 20px 48px rgba(30,58,95,0.4), 0 0 0 1px rgba(148,163,184,0.35);
+    background: linear-gradient(135deg, rgba(26,50,82,0.96) 0%, rgba(38,62,94,0.94) 50%, rgba(44,56,74,0.92) 100%);
+    box-shadow: 0 20px 48px rgba(26,50,82,0.45), 0 0 0 1px rgba(148,163,184,0.35);
     border: 1px solid rgba(148,163,184,0.5);
     backdrop-filter: blur(22px);
     display: flex;
@@ -378,7 +378,7 @@ function createOverlayIfNeeded() {
     height: 26px;
     border-radius: 999px;
     border: 1px solid rgba(148,163,184,0.5);
-    background: rgba(30,58,95,0.9);
+    background: rgba(26,50,82,0.9);
     color: #e2e8f0;
     display: flex;
     align-items: center;
@@ -398,7 +398,7 @@ function createOverlayIfNeeded() {
     height: 26px;
     border-radius: 999px;
     border: 1px solid rgba(148,163,184,0.6);
-    background: rgba(30,58,95,0.9);
+    background: rgba(26,50,82,0.9);
     color: #e2e8f0;
     display: flex;
     align-items: center;
