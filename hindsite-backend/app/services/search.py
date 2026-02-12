@@ -1,5 +1,6 @@
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -7,6 +8,7 @@ from typing import List
 from dotenv import load_dotenv
 import cohere
 
+from app.database import SessionLocal
 from app.schemas import PageResult
 from app.services.embeddings import embedder
 
@@ -54,29 +56,26 @@ class SearchService:
             raise RuntimeError(f"Embedding failed (check COHERE_API_KEY): {e}") from e
         candidate_limit = max(20, limit * 5)
 
-        # Step 2a: Vector search (pgvector) - 70% weight
-        print("[HindSite SEMANTIC] [vector] Running pgvector similarity search (candidate_limit=%d)" % candidate_limit)
-        sql_vector = text("""
-            SELECT id, url, title, domain, content, time_spent, scroll_percent, captured_at,
-                   1 - (embedding <=> CAST(:embedding AS vector)) as similarity
-            FROM captured_pages
-            WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> CAST(:embedding AS vector)
-            LIMIT :limit
-        """)
-        result = db.execute(
-            sql_vector,
-            {"embedding": str(query_embedding), "limit": candidate_limit},
-        )
-        vector_rows = result.fetchall()
-
-        # Step 2b: FTS with OR semantics (any query term matches) - 30% weight
+        # Step 2: Run vector search and FTS in parallel (same wall-clock as the slower of the two)
         fts_query_or = _fts_query_or_tokens(query)
-        print("[HindSite SEMANTIC] [fts] Running full-text search (ts_rank, OR terms) on title, domain, summary, content")
-        print("[HindSite SEMANTIC] [fts] query=%r" % query)
-        print("[HindSite SEMANTIC] [fts] fts_query_or=%r" % fts_query_or)
-        fts_rows = []
-        if fts_query_or:
+        print("[HindSite SEMANTIC] [vector] Running pgvector similarity search (candidate_limit=%d)" % candidate_limit)
+        print("[HindSite SEMANTIC] [fts] fts_query_or=%r" % (fts_query_or or "(skipped)"))
+
+        def run_vector():
+            sql_vector = text("""
+                SELECT id, url, title, domain, content, time_spent, scroll_percent, captured_at,
+                       1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                FROM captured_pages
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> CAST(:embedding AS vector)
+                LIMIT :limit
+            """)
+            r = db.execute(sql_vector, {"embedding": str(query_embedding), "limit": candidate_limit})
+            return r.fetchall()
+
+        def run_fts():
+            if not fts_query_or:
+                return []
             sql_fts = text("""
                 SELECT id, ts_rank(
                     setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
@@ -96,20 +95,26 @@ class SearchService:
                 LIMIT :limit
             """)
             try:
-                fts_result = db.execute(sql_fts, {"fts_query": fts_query_or, "limit": candidate_limit})
-                fts_rows = fts_result.fetchall()
-                print("[HindSite SEMANTIC] [fts] FTS returned %d rows" % len(fts_rows))
-                for i, r in enumerate(fts_rows):
-                    rid = getattr(r, "id", None)
-                    rscore = getattr(r, "fts_score", 0) or 0
-                    print("[HindSite SEMANTIC] [fts]   [%d] id=%s fts_score=%.6f" % (i, rid, rscore))
+                fts_db = SessionLocal()
+                try:
+                    fts_result = fts_db.execute(sql_fts, {"fts_query": fts_query_or, "limit": candidate_limit})
+                    return fts_result.fetchall()
+                finally:
+                    fts_db.close()
             except Exception as e:
-                print("[HindSite SEMANTIC] [fts] FTS failed (e.g. missing summary column): %s" % e)
-                import traceback
-                traceback.print_exc()
-                fts_rows = []
-        else:
-            print("[HindSite SEMANTIC] [fts] No FTS tokens (query too short or only stopwords), skipping FTS")
+                print("[HindSite SEMANTIC] [fts] FTS failed: %s" % e)
+                return []
+
+        # Run vector (main thread) and FTS (worker, own session) in parallel
+        fts_rows = []
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_fts = executor.submit(run_fts) if fts_query_or else None
+            vector_rows = run_vector()  # main thread, uses request db
+            if f_fts:
+                fts_rows = f_fts.result()
+                print("[HindSite SEMANTIC] [fts] FTS returned %d rows" % len(fts_rows))
+        if not fts_query_or:
+            print("[HindSite SEMANTIC] [fts] No FTS tokens, skipping")
         # Normalize id to string so lookup matches vector row id (uuid vs str)
         id_to_fts = {}
         for r in fts_rows:

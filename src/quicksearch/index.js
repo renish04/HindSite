@@ -86,20 +86,18 @@ function displaySearchResults(results) {
     container = document.createElement('div');
     container.id = 'resultsContainer';
     container.style.cssText = `
-      position: absolute;
-      bottom: 100%;
-      left: 0;
-      right: 0;
-      max-height: 380px;
-      overflow-y: auto;
+      width: 100%;
+      overflow: visible;
       background: rgba(20, 20, 35, 0.98);
       border-radius: 12px 12px 0 0;
-      padding: 10px;
-      margin-bottom: 5px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
     `;
+    const wrap = document.querySelector('.quicksearch-wrap');
     const shell = document.querySelector('.shell');
-    if (shell && shell.parentElement) {
-      shell.parentElement.insertBefore(container, shell);
+    if (wrap && shell) {
+      wrap.insertBefore(container, shell);
     } else {
       document.body.appendChild(container);
     }
@@ -181,18 +179,16 @@ function displayError(message) {
     container = document.createElement('div');
     container.id = 'resultsContainer';
     container.style.cssText = `
-      position: absolute;
-      bottom: 100%;
-      left: 0;
-      right: 0;
-      max-height: 380px;
-      overflow-y: auto;
-      padding: 10px;
-      margin-bottom: 5px;
+      width: 100%;
+      overflow: visible;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
     `;
+    const wrap = document.querySelector('.quicksearch-wrap');
     const shell = document.querySelector('.shell');
-    if (shell && shell.parentElement) {
-      shell.parentElement.insertBefore(container, shell);
+    if (wrap && shell) {
+      wrap.insertBefore(container, shell);
     } else {
       document.body.appendChild(container);
     }

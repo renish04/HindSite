@@ -195,11 +195,28 @@ function getMetaDescription() {
   return (el && el.getAttribute('content')) ? el.getAttribute('content').trim() : '';
 }
 
-function getFirstParagraph() {
-  const p = document.body && document.body.querySelector('p');
-  return (p && p.textContent) ? p.textContent.trim() : '';
+function getFirstParagraphs(maxParagraphs, maxChars) {
+  if (!document.body) return '';
+  const paras = document.body.querySelectorAll('p');
+  const parts = [];
+  let total = 0;
+  for (let i = 0; i < paras.length && i < maxParagraphs; i++) {
+    const t = (paras[i].textContent || '').trim();
+    if (t) {
+      parts.push(t);
+      total += t.length;
+      if (total >= maxChars) break;
+    }
+  }
+  return parts.join('\n\n').slice(0, maxChars);
 }
 
+function getFullBodyText(maxChars) {
+  if (!document.body || !document.body.innerText) return '';
+  return document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, maxChars);
+}
+
+/** Use Readability whenever it returns any content (no minimum word count). */
 function extractContentWithReadability() {
   try {
     const docClone = document.cloneNode(true);
@@ -209,10 +226,6 @@ function extractContentWithReadability() {
     const reader = new Readability(docClone);
     const article = reader.parse();
     if (!article || !article.textContent || !article.textContent.trim()) {
-      return null;
-    }
-    const wordCount = article.textContent.trim().split(/\s+/).filter(w => w.length > 0).length;
-    if (wordCount < 100) {
       return null;
     }
     return {
@@ -226,17 +239,32 @@ function extractContentWithReadability() {
   }
 }
 
+/** Fallback: title, meta, then as much body as we can (multiple paragraphs or full body truncated). */
 function extractContentFallback() {
   const title = document.title || '';
   const metaDesc = getMetaDescription();
-  const firstPara = getFirstParagraph();
-  const parts = [title, metaDesc, firstPara].filter(Boolean);
-  const content = parts.join('\n\n');
+  const metaAndTitle = [title, metaDesc].filter(Boolean).join('\n\n');
+  // Take first 8 paragraphs or 5000 chars of body text so we don't lose context
+  const bodyChunk = getFirstParagraphs(8, 5000) || getFullBodyText(5000);
+  const content = [metaAndTitle, bodyChunk].filter(Boolean).join('\n\n') || getFullBodyText(8000);
   return {
     title,
     content: content || (document.body && document.body.innerText) || '',
-    summary: metaDesc || firstPara.slice(0, 300) || ''
+    summary: metaDesc || bodyChunk.slice(0, 300) || ''
   };
+}
+
+/** Append extra context from full page so we don't over-filter; cap total size. */
+function appendExtraContext(primaryContent, maxExtraChars, maxTotalChars) {
+  const fullBody = getFullBodyText(maxExtraChars + 1000);
+  if (!fullBody) return primaryContent;
+  // Avoid huge duplication: if primary is already most of body, add only a tail
+  const primaryLen = primaryContent.length;
+  const toAdd = fullBody.length > primaryLen ? fullBody.slice(primaryLen) : fullBody;
+  const extra = toAdd.replace(/\s+/g, ' ').trim().slice(0, maxExtraChars);
+  if (!extra) return primaryContent;
+  const combined = primaryContent + '\n\n' + extra;
+  return combined.length <= maxTotalChars ? combined : primaryContent + '\n\n' + extra.slice(0, maxTotalChars - primaryContent.length - 2);
 }
 
 function extractContent() {
@@ -256,13 +284,20 @@ function extractContent() {
     title = readResult.title;
     content = readResult.content;
     summary = readResult.summary;
-    console.log('📥 Used Readability (main article content)');
+    console.log('📥 Used Readability (main article, any length)');
   } else {
     const fallback = extractContentFallback();
     title = fallback.title;
     content = fallback.content;
     summary = fallback.summary;
-    console.log('📥 Used fallback (title + meta description + first paragraph)');
+    console.log('📥 Used fallback (title + meta + first 8 paragraphs / body)');
+  }
+
+  // Bake in extra context from full page so we don't over-filter (backend embeds up to 8k chars)
+  const beforeLen = content.length;
+  content = appendExtraContext(content, 3500, 11000);
+  if (content.length > beforeLen) {
+    console.log('📥 Appended extra page context: +' + (content.length - beforeLen) + ' chars');
   }
 
   const url = window.location.href;

@@ -24,15 +24,30 @@
       padding-bottom: 32px;
     }
 
+    .quicksearch-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 420px;
+      max-width: 560px;
+      width: 46vw;
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+
+    body.standalone .quicksearch-wrap {
+      justify-content: flex-end;
+      padding-bottom: 32px;
+    }
+
     body.standalone .shell {
       position: relative;
       z-index: 1;
     }
 
     .shell {
-      min-width: 420px;
-      max-width: 560px;
-      width: 46vw;
+      width: 100%;
       box-sizing: border-box;
       padding: 12px 14px;
       border-radius: 999px;
@@ -170,6 +185,7 @@
   </style>
 </head>
 <body>
+  <div class="quicksearch-wrap">
   <div class="shell">
     <div class="hint">HindSite quick search</div>
     <textarea
@@ -188,6 +204,7 @@
     <div class="send-chip" title="Send" role="button" tabindex="0">
       <span>➤</span>
     </div>
+  </div>
   </div>
 
   <script src="index.js"></script>
