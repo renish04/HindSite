@@ -7,6 +7,10 @@ class PageCapture(BaseModel):
     url: str
     content: str
     metadata: dict
+    title: Optional[str] = None
+    domain: Optional[str] = None
+    summary: Optional[str] = None
+    timestamp: Optional[str] = None
 
 
 class OpenTab(BaseModel):

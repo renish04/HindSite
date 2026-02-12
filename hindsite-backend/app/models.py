@@ -12,6 +12,7 @@ class CapturedPage(Base):
     url = Column(String(2000), unique=True, nullable=False, index=True)
     title = Column(String(500))
     content = Column(Text)
+    summary = Column(Text)
     domain = Column(String(255), index=True)
     time_spent = Column(Integer)
     scroll_percent = Column(Float)

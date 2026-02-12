@@ -28,6 +28,18 @@ def init_db():
                 sys.exit(1)
             raise
     Base.metadata.create_all(bind=engine)
+    # Add summary column if table existed without it
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS summary TEXT"))
+            conn.commit()
+        except Exception:
+            try:
+                conn.execute(text("ALTER TABLE captured_pages ADD COLUMN summary TEXT"))
+                conn.commit()
+            except Exception as e:
+                if "already exists" not in str(e).lower():
+                    raise
     print("Done: vector extension and captured_pages table are ready.")
 
 

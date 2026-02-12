@@ -13,6 +13,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       body: JSON.stringify({
         url: message.pageData.url,
         content: message.pageData.content,
+        title: message.pageData.title,
+        domain: message.pageData.domain,
+        summary: message.pageData.summary,
+        timestamp: message.pageData.timestamp,
         metadata: message.pageData.metadata
       })
     })

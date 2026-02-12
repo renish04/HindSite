@@ -37,9 +37,9 @@ class SearchService:
             raise RuntimeError(f"Embedding failed (check COHERE_API_KEY): {e}") from e
         candidate_limit = max(20, limit * 5)
 
-        # Step 2: Vector search (pgvector)
+        # Step 2a: Vector search (pgvector) - 70% weight
         print("[HindSite SEMANTIC] [vector] Running pgvector similarity search (candidate_limit=%d)" % candidate_limit)
-        sql = text("""
+        sql_vector = text("""
             SELECT id, url, title, domain, content, time_spent, scroll_percent, captured_at,
                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
             FROM captured_pages
@@ -47,16 +47,59 @@ class SearchService:
             ORDER BY embedding <=> CAST(:embedding AS vector)
             LIMIT :limit
         """)
-
         result = db.execute(
-            sql,
+            sql_vector,
             {"embedding": str(query_embedding), "limit": candidate_limit},
         )
-        candidates = result.fetchall()
+        vector_rows = result.fetchall()
 
-        print("[HindSite SEMANTIC] [vector] Candidates returned: %d" % len(candidates))
+        # Step 2b: FTS (BM25-like) on title, domain, summary, content - 30% weight
+        print("[HindSite SEMANTIC] [fts] Running full-text search (ts_rank) on title, domain, summary, content")
+        query_escaped = query.replace("'", "''")
+        sql_fts = text("""
+            SELECT id, ts_rank(
+                setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(domain, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(content, '')), 'B'),
+                plainto_tsquery('english', :query)
+            ) as fts_score
+            FROM captured_pages
+            WHERE (
+                setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(domain, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(content, '')), 'B')
+            ) @@ plainto_tsquery('english', :query)
+            ORDER BY fts_score DESC
+            LIMIT :limit
+        """)
+        try:
+            fts_result = db.execute(sql_fts, {"query": query_escaped, "limit": candidate_limit})
+            fts_rows = fts_result.fetchall()
+        except Exception as e:
+            print("[HindSite SEMANTIC] [fts] FTS failed (missing summary column?): %s" % e)
+            fts_rows = []
+        id_to_fts = {getattr(r, "id", None): getattr(r, "fts_score", 0) or 0 for r in fts_rows if getattr(r, "id", None)}
+        max_fts = max(id_to_fts.values()) if id_to_fts else 1.0
+
+        # Merge: 70% vector + 30% FTS
+        rows_with_score = []
+        for row in vector_rows:
+            vid = getattr(row, "id", None)
+            v_score = getattr(row, "similarity", 0) or 0
+            f_score = id_to_fts.get(vid, 0) / max_fts if max_fts > 0 else 0
+            combined = 0.7 * v_score + 0.3 * f_score
+            rows_with_score.append((row, combined))
+        rows_with_score.sort(key=lambda x: -x[1])
+        candidates = [r[0] for r in rows_with_score[:candidate_limit]]
+
+        print("[HindSite SEMANTIC] [vector] Candidates after hybrid (70%% vector + 30%% FTS): %d" % len(candidates))
         for i, row in enumerate(candidates):
-            print("[HindSite SEMANTIC]   [%d] id=%s url=%s similarity=%.4f" % (i, getattr(row, "id", ""), (getattr(row, "url", "") or "")[:60], getattr(row, "similarity", 0)))
+            v_score = getattr(row, "similarity", 0) or 0
+            f_score = id_to_fts.get(getattr(row, "id", None), 0) / max_fts if max_fts > 0 else 0
+            comb = 0.7 * v_score + 0.3 * f_score
+            print("[HindSite SEMANTIC]   [%d] id=%s url=%s vector=%.4f fts=%.4f combined=%.4f" % (i, getattr(row, "id", ""), (getattr(row, "url", "") or "")[:50], v_score, f_score, comb))
 
         if not candidates:
             print("[HindSite SEMANTIC] No candidates → returning []")

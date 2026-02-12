@@ -54,17 +54,36 @@ def health_check():
     return {"status": "healthy", "message": "HindSite API is running"}
 
 
+def _build_embedding_text(page: PageCapture, content: str) -> str:
+    """Single text for one vector: title, url, domain, summary, content (metadata affects search)."""
+    title = (page.title or extract_title_from_content(content, page.url) or "").strip()
+    domain = (page.domain or extract_domain(page.url) or "").strip()
+    summary = (page.summary or "").strip()
+    parts = []
+    if title:
+        parts.append(f"Title: {title}")
+    parts.append(f"URL: {page.url}")
+    if domain:
+        parts.append(f"Domain: {domain}")
+    if summary:
+        parts.append(f"Summary: {summary}")
+    parts.append("")
+    parts.append(content)
+    return "\n".join(parts)
+
+
 @app.post("/capture")
 def capture_page(page: PageCapture, db: Session = Depends(get_db)):
-    """Capture a page with embedding generation."""
+    """Capture a page with embedding generation (metadata included in vector)."""
     existing = db.query(CapturedPage).filter(CapturedPage.url == page.url).first()
     if existing:
         return {"status": "exists", "id": existing.id}
 
     content = clean_content(page.content)
+    embedding_text = _build_embedding_text(page, content)
 
     try:
-        embedding = embedder.generate_document_embedding(content)
+        embedding = embedder.generate_document_embedding(embedding_text)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Embedding generation failed: {str(e)}"
@@ -72,9 +91,10 @@ def capture_page(page: PageCapture, db: Session = Depends(get_db)):
 
     db_page = CapturedPage(
         url=page.url,
-        title=extract_title_from_content(content, page.url),
+        title=(page.title or extract_title_from_content(content, page.url)),
         content=content,
-        domain=extract_domain(page.url),
+        summary=page.summary,
+        domain=(page.domain or extract_domain(page.url)),
         time_spent=page.metadata.get("timeSpent", 0),
         scroll_percent=page.metadata.get("scrollPercent", 0),
         word_count=page.metadata.get("wordCount", 0),

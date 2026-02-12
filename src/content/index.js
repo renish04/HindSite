@@ -188,34 +188,111 @@ function checkThresholds() {
 checkInterval = setInterval(checkThresholds, 5000);
 
 // ============================================
-// CONTENT EXTRACTION
+// CONTENT EXTRACTION (Readability + fallback)
 // ============================================
+function getMetaDescription() {
+  const el = document.querySelector('meta[name="description"]') || document.querySelector('meta[property="og:description"]');
+  return (el && el.getAttribute('content')) ? el.getAttribute('content').trim() : '';
+}
+
+function getFirstParagraph() {
+  const p = document.body && document.body.querySelector('p');
+  return (p && p.textContent) ? p.textContent.trim() : '';
+}
+
+function extractContentWithReadability() {
+  try {
+    const docClone = document.cloneNode(true);
+    if (typeof Readability === 'undefined') {
+      return null;
+    }
+    const reader = new Readability(docClone);
+    const article = reader.parse();
+    if (!article || !article.textContent || !article.textContent.trim()) {
+      return null;
+    }
+    const wordCount = article.textContent.trim().split(/\s+/).filter(w => w.length > 0).length;
+    if (wordCount < 100) {
+      return null;
+    }
+    return {
+      title: (article.title && article.title.trim()) || document.title || '',
+      content: article.textContent.trim(),
+      summary: (article.excerpt && article.excerpt.trim()) || ''
+    };
+  } catch (e) {
+    console.warn('HindSite Readability failed:', e);
+    return null;
+  }
+}
+
+function extractContentFallback() {
+  const title = document.title || '';
+  const metaDesc = getMetaDescription();
+  const firstPara = getFirstParagraph();
+  const parts = [title, metaDesc, firstPara].filter(Boolean);
+  const content = parts.join('\n\n');
+  return {
+    title,
+    content: content || (document.body && document.body.innerText) || '',
+    summary: metaDesc || firstPara.slice(0, 300) || ''
+  };
+}
+
 function extractContent() {
   console.log('📥 Extracting content...');
-  
+
   hasExtracted = true;
-  
   clearInterval(timerInterval);
   clearInterval(checkInterval);
   pauseTimer();
-  
-  const pageText = document.body.innerText;
-  const wordCount = pageText.split(/\s+/).filter(word => word.length > 0).length;
-  
+
+  let title = '';
+  let content = '';
+  let summary = '';
+
+  const readResult = extractContentWithReadability();
+  if (readResult) {
+    title = readResult.title;
+    content = readResult.content;
+    summary = readResult.summary;
+    console.log('📥 Used Readability (main article content)');
+  } else {
+    const fallback = extractContentFallback();
+    title = fallback.title;
+    content = fallback.content;
+    summary = fallback.summary;
+    console.log('📥 Used fallback (title + meta description + first paragraph)');
+  }
+
+  const url = window.location.href;
+  const domain = (function () {
+    try {
+      return new URL(url).hostname || url;
+    } catch (_) {
+      return url;
+    }
+  })();
+  const timestamp = new Date().toISOString();
+  const wordCount = content.split(/\s+/).filter(w => w.length > 0).length;
+
   const pageData = {
-    url: window.location.href,
-    content: pageText,
+    url,
+    title,
+    domain,
+    summary,
+    content,
+    timestamp,
     metadata: {
       timeSpent: activeTime,
       scrollPercent: maxScrollPercent,
-      timestamp: new Date().toISOString(),
-      wordCount: wordCount,
+      timestamp,
+      wordCount,
       isShortPage: isShortPage
     }
   };
-  
-  console.log('📦 Content extracted:', pageData);
-  
+
+  console.log('📦 Content extracted:', { url, title, domain, wordCount });
   saveToStorage(pageData);
 }
 
