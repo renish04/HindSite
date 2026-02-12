@@ -1,4 +1,5 @@
 import os
+import re
 from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -10,6 +11,22 @@ from app.schemas import PageResult
 from app.services.embeddings import embedder
 
 load_dotenv()
+
+# Stopwords so FTS uses OR over meaningful terms only (plainto_tsquery uses AND and matches nothing on long queries)
+_FTS_STOP = frozenset(
+    "a an and are as at be but by for if in into is it no not of on or such that the their then there these they this to was will with".split()
+)
+
+
+def _fts_query_or_tokens(query: str) -> str:
+    """Build a tsquery string with OR semantics: 'word1 | word2 | word3'. Returns empty if no tokens."""
+    words = re.findall(r"[a-zA-Z0-9]{3,}", query.lower())
+    tokens = [w for w in words if w not in _FTS_STOP]
+    if not tokens:
+        return ""
+    # Escape single quotes for PostgreSQL; join with |
+    escaped = [t.replace("'", "''") for t in tokens]
+    return " | ".join(escaped)
 
 
 class SearchService:
@@ -53,42 +70,62 @@ class SearchService:
         )
         vector_rows = result.fetchall()
 
-        # Step 2b: FTS (BM25-like) on title, domain, summary, content - 30% weight
-        print("[HindSite SEMANTIC] [fts] Running full-text search (ts_rank) on title, domain, summary, content")
-        query_escaped = query.replace("'", "''")
-        sql_fts = text("""
-            SELECT id, ts_rank(
-                setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(domain, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(content, '')), 'B'),
-                plainto_tsquery('english', :query)
-            ) as fts_score
-            FROM captured_pages
-            WHERE (
-                setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(domain, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(content, '')), 'B')
-            ) @@ plainto_tsquery('english', :query)
-            ORDER BY fts_score DESC
-            LIMIT :limit
-        """)
-        try:
-            fts_result = db.execute(sql_fts, {"query": query_escaped, "limit": candidate_limit})
-            fts_rows = fts_result.fetchall()
-        except Exception as e:
-            print("[HindSite SEMANTIC] [fts] FTS failed (missing summary column?): %s" % e)
-            fts_rows = []
-        id_to_fts = {getattr(r, "id", None): getattr(r, "fts_score", 0) or 0 for r in fts_rows if getattr(r, "id", None)}
+        # Step 2b: FTS with OR semantics (any query term matches) - 30% weight
+        fts_query_or = _fts_query_or_tokens(query)
+        print("[HindSite SEMANTIC] [fts] Running full-text search (ts_rank, OR terms) on title, domain, summary, content")
+        print("[HindSite SEMANTIC] [fts] query=%r" % query)
+        print("[HindSite SEMANTIC] [fts] fts_query_or=%r" % fts_query_or)
+        fts_rows = []
+        if fts_query_or:
+            sql_fts = text("""
+                SELECT id, ts_rank(
+                    setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(domain, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(content, '')), 'B'),
+                    to_tsquery('english', :fts_query)
+                ) as fts_score
+                FROM captured_pages
+                WHERE (
+                    setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(domain, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+                    setweight(to_tsvector('english', coalesce(content, '')), 'B')
+                ) @@ to_tsquery('english', :fts_query)
+                ORDER BY fts_score DESC
+                LIMIT :limit
+            """)
+            try:
+                fts_result = db.execute(sql_fts, {"fts_query": fts_query_or, "limit": candidate_limit})
+                fts_rows = fts_result.fetchall()
+                print("[HindSite SEMANTIC] [fts] FTS returned %d rows" % len(fts_rows))
+                for i, r in enumerate(fts_rows):
+                    rid = getattr(r, "id", None)
+                    rscore = getattr(r, "fts_score", 0) or 0
+                    print("[HindSite SEMANTIC] [fts]   [%d] id=%s fts_score=%.6f" % (i, rid, rscore))
+            except Exception as e:
+                print("[HindSite SEMANTIC] [fts] FTS failed (e.g. missing summary column): %s" % e)
+                import traceback
+                traceback.print_exc()
+                fts_rows = []
+        else:
+            print("[HindSite SEMANTIC] [fts] No FTS tokens (query too short or only stopwords), skipping FTS")
+        # Normalize id to string so lookup matches vector row id (uuid vs str)
+        id_to_fts = {}
+        for r in fts_rows:
+            rid = getattr(r, "id", None)
+            if rid is not None:
+                id_to_fts[str(rid)] = getattr(r, "fts_score", 0) or 0
         max_fts = max(id_to_fts.values()) if id_to_fts else 1.0
+        print("[HindSite SEMANTIC] [fts] id_to_fts size=%d max_fts=%.6f" % (len(id_to_fts), max_fts))
 
         # Merge: 70% vector + 30% FTS
         rows_with_score = []
         for row in vector_rows:
             vid = getattr(row, "id", None)
+            vid_str = str(vid) if vid is not None else None
             v_score = getattr(row, "similarity", 0) or 0
-            f_score = id_to_fts.get(vid, 0) / max_fts if max_fts > 0 else 0
+            f_score = id_to_fts.get(vid_str, 0) / max_fts if max_fts > 0 else 0
             combined = 0.7 * v_score + 0.3 * f_score
             rows_with_score.append((row, combined))
         rows_with_score.sort(key=lambda x: -x[1])
@@ -97,7 +134,8 @@ class SearchService:
         print("[HindSite SEMANTIC] [vector] Candidates after hybrid (70%% vector + 30%% FTS): %d" % len(candidates))
         for i, row in enumerate(candidates):
             v_score = getattr(row, "similarity", 0) or 0
-            f_score = id_to_fts.get(getattr(row, "id", None), 0) / max_fts if max_fts > 0 else 0
+            rid_str = str(getattr(row, "id", None)) if getattr(row, "id", None) is not None else None
+            f_score = id_to_fts.get(rid_str, 0) / max_fts if max_fts > 0 else 0
             comb = 0.7 * v_score + 0.3 * f_score
             print("[HindSite SEMANTIC]   [%d] id=%s url=%s vector=%.4f fts=%.4f combined=%.4f" % (i, getattr(row, "id", ""), (getattr(row, "url", "") or "")[:50], v_score, f_score, comb))
 

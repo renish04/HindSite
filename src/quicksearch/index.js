@@ -90,7 +90,7 @@ function displaySearchResults(results) {
       bottom: 100%;
       left: 0;
       right: 0;
-      max-height: 300px;
+      max-height: 380px;
       overflow-y: auto;
       background: rgba(20, 20, 35, 0.98);
       border-radius: 12px 12px 0 0;
@@ -116,26 +116,35 @@ function displaySearchResults(results) {
 
   container.innerHTML = results
     .map(
-      (r) => `
+      (r) => {
+        const domainDisplay = escapeHtml(r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || '');
+        const titleDisplay = escapeHtml(r.title || 'Untitled');
+        const urlDisplay = escapeHtml(r.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+        return `
     <div class="result-card" data-url="${escapeHtml(r.url)}" style="
       background: rgba(255,255,255,0.05);
-      padding: 12px;
-      margin-bottom: 8px;
-      border-radius: 8px;
+      padding: 18px 20px;
+      margin-bottom: 12px;
+      border-radius: 12px;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s, box-shadow 0.2s;
+      border: 1px solid rgba(255,255,255,0.06);
     ">
-      <div style="color: #fff; font-weight: 500; margin-bottom: 4px; font-size: 14px;">
-        ${escapeHtml(r.title || r.domain || '')}
+      <div style="color: #e2e8f0; font-weight: 600; font-size: 16px; margin-bottom: 6px; letter-spacing: 0.01em; line-height: 1.35;">
+        ${domainDisplay || 'URL'}
       </div>
-      <div style="color: #888; font-size: 11px; margin-bottom: 6px;">
-        ${escapeHtml(r.domain)} • ${Math.round((r.similarity || 0) * 100)}% match
+      <div style="color: #94a3b8; font-size: 14px; margin-bottom: 10px; font-weight: 500;">
+        ${titleDisplay}
       </div>
-      <div style="color: #aaa; font-size: 12px; line-height: 1.4;">
+      <div style="color: #64748b; font-size: 12px; margin-bottom: 8px; word-break: break-all;">
+        ${urlDisplay || ''} · ${Math.round((r.similarity || 0) * 100)}% match
+      </div>
+      <div style="color: #94a3b8; font-size: 13px; line-height: 1.5;">
         ${escapeHtml(r.snippet || '')}
       </div>
     </div>
-  `
+  `;
+      }
     )
     .join('');
 
@@ -146,9 +155,11 @@ function displaySearchResults(results) {
     });
     card.addEventListener('mouseenter', () => {
       card.style.background = 'rgba(255,255,255,0.1)';
+      card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
     });
     card.addEventListener('mouseleave', () => {
       card.style.background = 'rgba(255,255,255,0.05)';
+      card.style.boxShadow = 'none';
     });
   });
 }
@@ -174,7 +185,7 @@ function displayError(message) {
       bottom: 100%;
       left: 0;
       right: 0;
-      max-height: 300px;
+      max-height: 380px;
       overflow-y: auto;
       padding: 10px;
       margin-bottom: 5px;
@@ -239,6 +250,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // Enter always sends (e.g. when focus is on mic after speaking)
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const inp = document.getElementById('quickSearchInput');
+    if (inp && e.target === inp) return;
+    e.preventDefault();
+    performSearch(inp ? inp.value : '');
+  });
 
   startQuickSearchSpeech();
 });

@@ -534,6 +534,14 @@ function createOverlayIfNeeded() {
   sendChip.addEventListener('click', () => {
     performOverlaySearch(hsOverlayInput ? hsOverlayInput.value : '');
   });
+
+  // Enter always sends (even when focus is on mic or send chip)
+  hsOverlayRoot.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || !hsOverlayVisible) return;
+    if (e.target === input) return; // input has its own handler
+    e.preventDefault();
+    performOverlaySearch(hsOverlayInput ? hsOverlayInput.value : '');
+  });
 }
 
 function showOverlay() {
@@ -567,8 +575,12 @@ function hideOverlay() {
   hsOverlayRoot.classList.remove('hs-visible');
   hsOverlayVisible = false;
   stopOverlaySpeech();
+  if (hsOverlayInput) hsOverlayInput.value = '';
   const resultsEl = hsOverlayRoot.querySelector('.hs-overlay-results');
-  if (resultsEl) resultsEl.innerHTML = '';
+  if (resultsEl) {
+    resultsEl.innerHTML = '';
+    resultsEl.style.display = 'none';
+  }
 
   // Let the exit transition finish, then hide
   hsOverlayHideTimer = setTimeout(() => {
@@ -638,17 +650,21 @@ function showOverlayResults(results) {
   if (!container) return;
   container.innerHTML = results
     .map((r) => {
-      const title = (r.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const url = (r.url || '').replace(/"/g, '&quot;');
-      return `<div class="hs-result-card" data-url="${url}" style="
-        padding: 10px 12px;
-        margin-bottom: 6px;
-        border-radius: 8px;
+      const urlRaw = (r.url || '').replace(/"/g, '&quot;');
+      const domainDisplay = (r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const titleDisplay = (r.title || 'Untitled').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      return `<div class="hs-result-card" data-url="${urlRaw}" style="
+        padding: 16px 18px;
+        margin-bottom: 10px;
+        border-radius: 12px;
         background: rgba(255,255,255,0.06);
         cursor: pointer;
-        font-size: 13px;
-        color: #e2e8f0;
-      " title="${url}">${title || 'Untitled'}</div>`;
+        border: 1px solid rgba(255,255,255,0.08);
+        transition: background 0.2s, box-shadow 0.2s;
+      " title="${urlRaw}">
+        <div style="color: #e2e8f0; font-weight: 600; font-size: 16px; margin-bottom: 4px; line-height: 1.35;">${domainDisplay || 'URL'}</div>
+        <div style="color: #94a3b8; font-size: 14px; font-weight: 500;">${titleDisplay}</div>
+      </div>`;
     })
     .join('');
   container.style.display = 'block';
@@ -657,6 +673,14 @@ function showOverlayResults(results) {
       const url = el.getAttribute('data-url');
       if (url) chrome.runtime.sendMessage({ type: 'OPEN_URL', url });
       hideOverlay();
+    });
+    el.addEventListener('mouseenter', () => {
+      el.style.background = 'rgba(255,255,255,0.1)';
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
+    });
+    el.addEventListener('mouseleave', () => {
+      el.style.background = 'rgba(255,255,255,0.06)';
+      el.style.boxShadow = 'none';
     });
   });
 }
