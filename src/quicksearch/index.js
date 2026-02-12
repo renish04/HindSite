@@ -15,6 +15,13 @@ let qsSpeechSupported = null;
 async function performSearch(query) {
   if (!query.trim()) return;
 
+  // In-out press animation on send button (Enter or click)
+  const sendChip = document.querySelector('.send-chip');
+  if (sendChip) {
+    sendChip.classList.add('press');
+    setTimeout(() => sendChip.classList.remove('press'), 180);
+  }
+
   const tabs = await chrome.tabs.query({});
   const openTabs = tabs.map((t) => ({
     tab_id: t.id,
@@ -34,7 +41,29 @@ async function performSearch(query) {
       })
     });
 
-    const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+    const text = await response.text();
+
+    if (!response.ok) {
+      let msg = text;
+      if (isJson) {
+        try {
+          const body = JSON.parse(text);
+          msg = body.detail ?? body.message ?? text;
+        } catch (_) {
+          msg = text || `Server error (${response.status})`;
+        }
+      }
+      displayError(typeof msg === 'string' ? msg : `Server error (${response.status})`);
+      return;
+    }
+    if (!isJson) {
+      displayError('Invalid response from server.');
+      return;
+    }
+
+    const data = JSON.parse(text);
 
     if (data.query_type === 'tab_switch' && data.matched_tab) {
       await chrome.tabs.update(data.matched_tab.tab_id, { active: true });
@@ -47,7 +76,7 @@ async function performSearch(query) {
     }
   } catch (error) {
     console.error('Search failed:', error);
-    displayError('Search failed. Is the backend running?');
+    displayError(error.message || 'Search failed. Is the backend running?');
   }
 }
 
@@ -202,6 +231,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (sendChip) {
     sendChip.addEventListener('click', () => {
       performSearch(input ? input.value : '');
+    });
+    sendChip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        performSearch(input ? input.value : '');
+      }
     });
   }
 

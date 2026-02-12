@@ -98,6 +98,25 @@
       }
     }
 
+    .mic-btn,
+    .send-chip {
+      transition: transform 0.18s ease-out;
+    }
+
+    .mic-btn:hover,
+    .send-chip:hover {
+      transform: scale(1.15);
+    }
+
+    .mic-btn:active,
+    .send-chip:active {
+      transform: scale(0.92);
+    }
+
+    .send-chip.press {
+      transform: scale(0.88);
+    }
+
     .mic-btn {
       flex: 0 0 auto;
       width: 26px;
@@ -130,7 +149,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: default;
+      cursor: pointer;
       user-select: none;
     }
 
@@ -166,7 +185,7 @@
         <path d="M12 3a2.5 2.5 0 0 1 2.5 2.5v5A2.5 2.5 0 0 1 12 13a2.5 2.5 0 0 1-2.5-2.5v-5A2.5 2.5 0 0 1 12 3Zm0 14a5 5 0 0 0 5-5 .75.75 0 0 1 1.5 0A6.5 6.5 0 0 1 12.75 18.47V21h-1.5v-2.53A6.5 6.5 0 0 1 5.5 12a.75.75 0 0 1 1.5 0 5 5 0 0 0 5 5Z" fill="currentColor"/>
       </svg>
     </button>
-    <div class="send-chip" title="Send (not wired yet)">
+    <div class="send-chip" title="Send" role="button" tabindex="0">
       <span>➤</span>
     </div>
   </div>

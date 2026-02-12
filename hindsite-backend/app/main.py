@@ -2,6 +2,8 @@ import logging
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
@@ -32,6 +34,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(ProgrammingError)
+def handle_missing_table(request, exc):
+    msg = str(exc.orig) if getattr(exc, "orig", None) else str(exc)
+    if "does not exist" in msg or "UndefinedTable" in msg:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Database table not created. Install pgvector, then run: python -m app.init_db"
+            },
+        )
+    raise exc
 
 
 @app.get("/health")
@@ -90,9 +105,17 @@ def search(query: SearchQuery, db: Session = Depends(get_db)):
             )
         intent = "semantic_search"
 
-    results = search_service.search_pages(
-        query.query, db, limit=query.limit or 3
-    )
+    try:
+        results = search_service.search_pages(
+            query.query, db, limit=query.limit or 3
+        )
+    except Exception as e:
+        logger.exception("Semantic search failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Search failed: {str(e)}. Check COHERE_API_KEY in .env and that the database table exists.",
+        )
+
     return SearchResponse(
         query_type="semantic_search",
         results=results,

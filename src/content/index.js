@@ -222,31 +222,6 @@ function extractContent() {
 // ============================================
 // STORAGE
 // ============================================
-const API_BASE = 'http://localhost:8000';
-
-async function sendToBackend(pageData) {
-  try {
-    const response = await fetch(`${API_BASE}/capture`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: pageData.url,
-        content: pageData.content,
-        metadata: pageData.metadata
-      })
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      console.log('HindSite: Page sent to backend:', result.status);
-    } else {
-      console.log('HindSite: Backend capture failed:', response.status, response.statusText);
-    }
-  } catch (error) {
-    console.log('HindSite: Backend unavailable, saved locally only');
-  }
-}
-
 function saveToStorage(pageData) {
   chrome.storage.local.get(['savedPages'], (result) => {
     const savedPages = result.savedPages || [];
@@ -265,8 +240,8 @@ function saveToStorage(pageData) {
       console.log(`   Total pages saved: ${savedPages.length}`);
       showNotification();
 
-      // Also send to backend (primary storage is local; backend is additional)
-      sendToBackend(pageData);
+      // Ask background to POST to backend (avoids page-origin permission prompts)
+      chrome.runtime.sendMessage({ type: 'SEND_TO_BACKEND', pageData }).catch(() => {});
     });
   });
 }
@@ -337,6 +312,21 @@ function createOverlayIfNeeded() {
       #hindsite-overlay-root .hs-mic.listening {
         border-color: rgba(255,255,255,0.6) !important;
         animation: hsMicPulse 1.1s ease-in-out infinite;
+      }
+      #hindsite-overlay-root .hs-mic,
+      #hindsite-overlay-root .hs-send-chip {
+        transition: transform 0.18s ease-out;
+      }
+      #hindsite-overlay-root .hs-mic:hover,
+      #hindsite-overlay-root .hs-send-chip:hover {
+        transform: scale(1.15);
+      }
+      #hindsite-overlay-root .hs-mic:active,
+      #hindsite-overlay-root .hs-send-chip:active {
+        transform: scale(0.92);
+      }
+      #hindsite-overlay-root .hs-send-chip.hs-press {
+        transform: scale(0.88);
       }
     `;
     document.documentElement.appendChild(style);
@@ -416,6 +406,7 @@ function createOverlayIfNeeded() {
   micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 3a2.5 2.5 0 0 1 2.5 2.5v5A2.5 2.5 0 0 1 12 13a2.5 2.5 0 0 1-2.5-2.5v-5A2.5 2.5 0 0 1 12 3Zm0 14a5 5 0 0 0 5-5 .75.75 0 0 1 1.5 0A6.5 6.5 0 0 1 12.75 18.47V21h-1.5v-2.53A6.5 6.5 0 0 1 5.5 12a.75.75 0 0 1 1.5 0 5 5 0 0 0 5 5Z" fill="currentColor"/></svg>';
 
   const sendChip = document.createElement('div');
+  sendChip.className = 'hs-send-chip';
   sendChip.textContent = '➤';
   sendChip.title = 'Send';
   sendChip.style.cssText = `
@@ -430,7 +421,7 @@ function createOverlayIfNeeded() {
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: default;
+    cursor: pointer;
     user-select: none;
   `;
 
@@ -449,6 +440,10 @@ function createOverlayIfNeeded() {
     if (e.key === 'Escape') {
       hideOverlay();
     }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      performOverlaySearch(input.value);
+    }
   });
 
   input.addEventListener('input', () => {
@@ -457,6 +452,10 @@ function createOverlayIfNeeded() {
 
   micBtn.addEventListener('click', () => {
     toggleOverlaySpeech();
+  });
+
+  sendChip.addEventListener('click', () => {
+    performOverlaySearch(hsOverlayInput ? hsOverlayInput.value : '');
   });
 }
 
@@ -491,11 +490,98 @@ function hideOverlay() {
   hsOverlayRoot.classList.remove('hs-visible');
   hsOverlayVisible = false;
   stopOverlaySpeech();
+  const resultsEl = hsOverlayRoot.querySelector('.hs-overlay-results');
+  if (resultsEl) resultsEl.innerHTML = '';
 
   // Let the exit transition finish, then hide
   hsOverlayHideTimer = setTimeout(() => {
     if (hsOverlayRoot) hsOverlayRoot.style.display = 'none';
   }, 190);
+}
+
+function ensureOverlayResultsContainer() {
+  if (!hsOverlayRoot) return null;
+  let container = hsOverlayRoot.querySelector('.hs-overlay-results');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'hs-overlay-results';
+    container.style.cssText = `
+      pointer-events: auto;
+      max-height: 280px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+      padding: 8px;
+      background: rgba(15,23,42,0.95);
+      border-radius: 12px;
+      border: 1px solid rgba(148,163,184,0.3);
+    `;
+    hsOverlayRoot.insertBefore(container, hsOverlayRoot.firstChild);
+  }
+  return container;
+}
+
+function performOverlaySearch(query) {
+  const q = (query || (hsOverlayInput && hsOverlayInput.value) || '').trim();
+  if (!q) return;
+
+  // In-out press animation on send button (from Enter or click)
+  const sendChip = hsOverlayRoot && hsOverlayRoot.querySelector('.hs-send-chip');
+  if (sendChip) {
+    sendChip.classList.add('hs-press');
+    setTimeout(() => sendChip.classList.remove('hs-press'), 180);
+  }
+
+  chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (response) => {
+    if (chrome.runtime.lastError) {
+      const resultsEl = ensureOverlayResultsContainer();
+      if (resultsEl) {
+        resultsEl.innerHTML = '<div style="color:#f87171;text-align:center;padding:12px;">Search failed</div>';
+        resultsEl.style.display = 'block';
+      }
+      return;
+    }
+    if (response && response.action === 'tab_switch') {
+      hideOverlay();
+      return;
+    }
+    if (response && response.action === 'semantic_search' && response.results && response.results.length) {
+      showOverlayResults(response.results);
+      return;
+    }
+    const resultsEl = ensureOverlayResultsContainer();
+    if (resultsEl) {
+      resultsEl.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:12px;">No matching pages found</div>';
+      resultsEl.style.display = 'block';
+    }
+  });
+}
+
+function showOverlayResults(results) {
+  const container = ensureOverlayResultsContainer();
+  if (!container) return;
+  container.innerHTML = results
+    .map((r) => {
+      const title = (r.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const url = (r.url || '').replace(/"/g, '&quot;');
+      return `<div class="hs-result-card" data-url="${url}" style="
+        padding: 10px 12px;
+        margin-bottom: 6px;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.06);
+        cursor: pointer;
+        font-size: 13px;
+        color: #e2e8f0;
+      " title="${url}">${title || 'Untitled'}</div>`;
+    })
+    .join('');
+  container.style.display = 'block';
+  container.querySelectorAll('.hs-result-card').forEach((el) => {
+    el.addEventListener('click', () => {
+      const url = el.getAttribute('data-url');
+      if (url) chrome.runtime.sendMessage({ type: 'OPEN_URL', url });
+      hideOverlay();
+    });
+  });
 }
 
 function toggleOverlay() {
