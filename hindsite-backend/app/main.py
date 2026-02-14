@@ -3,6 +3,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,20 @@ try:
     Base.metadata.create_all(bind=engine)
 except Exception as e:
     logger.warning("Table create_all failed (tables may already exist or user lacks CREATE): %s", e)
+
+# Verify table exists so search/capture don't fail with a confusing error
+try:
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1 FROM captured_pages LIMIT 0"))
+except ProgrammingError as e:
+    msg = str(e.orig) if getattr(e, "orig", None) else str(e)
+    if "does not exist" in msg or "UndefinedTable" in msg:
+        logger.error(
+            "Table 'captured_pages' does not exist. Create it: python -m app.init_db "
+            "(use a DB user with CREATE permission, e.g. postgres)."
+        )
+except Exception:
+    pass
 
 app = FastAPI(title="HindSite API", version="1.0.0")
 
@@ -54,36 +69,17 @@ def health_check():
     return {"status": "healthy", "message": "HindSite API is running"}
 
 
-def _build_embedding_text(page: PageCapture, content: str) -> str:
-    """Single text for one vector: title, url, domain, summary, content (metadata affects search)."""
-    title = (page.title or extract_title_from_content(content, page.url) or "").strip()
-    domain = (page.domain or extract_domain(page.url) or "").strip()
-    summary = (page.summary or "").strip()
-    parts = []
-    if title:
-        parts.append(f"Title: {title}")
-    parts.append(f"URL: {page.url}")
-    if domain:
-        parts.append(f"Domain: {domain}")
-    if summary:
-        parts.append(f"Summary: {summary}")
-    parts.append("")
-    parts.append(content)
-    return "\n".join(parts)
-
-
 @app.post("/capture")
 def capture_page(page: PageCapture, db: Session = Depends(get_db)):
-    """Capture a page with embedding generation (metadata included in vector)."""
+    """Capture a page with embedding generation."""
     existing = db.query(CapturedPage).filter(CapturedPage.url == page.url).first()
     if existing:
         return {"status": "exists", "id": existing.id}
 
     content = clean_content(page.content)
-    embedding_text = _build_embedding_text(page, content)
 
     try:
-        embedding = embedder.generate_document_embedding(embedding_text)
+        embedding = embedder.generate_document_embedding(content)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Embedding generation failed: {str(e)}"
@@ -91,10 +87,9 @@ def capture_page(page: PageCapture, db: Session = Depends(get_db)):
 
     db_page = CapturedPage(
         url=page.url,
-        title=(page.title or extract_title_from_content(content, page.url)),
+        title=extract_title_from_content(content, page.url),
         content=content,
-        summary=page.summary,
-        domain=(page.domain or extract_domain(page.url)),
+        domain=extract_domain(page.url),
         time_spent=page.metadata.get("timeSpent", 0),
         scroll_percent=page.metadata.get("scrollPercent", 0),
         word_count=page.metadata.get("wordCount", 0),
@@ -129,6 +124,15 @@ def search(query: SearchQuery, db: Session = Depends(get_db)):
         results = search_service.search_pages(
             query.query, db, limit=query.limit or 3
         )
+    except ProgrammingError as e:
+        msg = str(e.orig) if getattr(e, "orig", None) else str(e)
+        if "does not exist" in msg or "UndefinedTable" in msg:
+            logger.exception("Semantic search failed (table missing)")
+            raise HTTPException(
+                status_code=503,
+                detail="Table 'captured_pages' does not exist. Run: python -m app.init_db (use a DB user with CREATE permission, e.g. postgres).",
+            )
+        raise
     except Exception as e:
         logger.exception("Semantic search failed")
         raise HTTPException(
