@@ -147,14 +147,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const confirmed = confirm(
       'Are you sure you want to delete all saved pages?\n\nThis action cannot be undone!'
     );
-    
-    if (confirmed) {
+
+    if (!confirmed) return;
+
+    // Delete from backend first, then clear local storage
+    chrome.runtime.sendMessage({ type: 'DELETE_ALL_PAGES' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('HindSite: Clear all backend request failed', chrome.runtime.lastError.message);
+      }
+      if (response && response.ok) {
+        console.log('🗑️ Backend: deleted', response.count, 'pages');
+      }
       chrome.storage.local.set({ savedPages: [] }, () => {
         currentPages = [];
-        console.log('🗑️ All pages cleared');
+        console.log('🗑️ All pages cleared (local + backend)');
         showEmptyState();
       });
-    }
+    });
   }
 
   // ============================================
@@ -163,25 +172,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function deleteSavedPage(url) {
     const confirmed = confirm(
-      'Remove this saved page?\n\nThis will delete it from your HindSite list.'
+      'Remove this saved page?\n\nThis will delete it from your HindSite list and from the backend.'
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     const nextPages = currentPages.filter((p) => p.url !== url);
 
-    chrome.storage.local.set({ savedPages: nextPages }, () => {
-      currentPages = nextPages;
-
-      if (currentPages.length === 0) {
-        showEmptyState();
-        return;
+    chrome.runtime.sendMessage({ type: 'DELETE_PAGE_BY_URL', url }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('HindSite: Delete page by URL failed', chrome.runtime.lastError.message);
       }
-
-      displayPages(currentPages);
-      updateStatistics(currentPages);
+      chrome.storage.local.set({ savedPages: nextPages }, () => {
+        currentPages = nextPages;
+        if (currentPages.length === 0) {
+          showEmptyState();
+          return;
+        }
+        displayPages(currentPages);
+        updateStatistics(currentPages);
+      });
     });
   }
   

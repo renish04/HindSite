@@ -104,6 +104,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     chrome.tabs.create({ url: message.url }, () => sendResponse({ ok: true }));
     return true;
   }
+
+  if (message.type === 'DELETE_ALL_PAGES') {
+    fetch(`${API_BASE}/pages/all`, { method: 'DELETE' })
+      .then((res) => (res.ok ? res.json() : res.text().then((t) => Promise.reject(new Error(t)))))
+      .then((data) => sendResponse({ ok: true, count: data.count }))
+      .catch((err) => {
+        console.log('HindSite: Delete all failed', err.message);
+        sendResponse({ ok: false, error: err.message });
+      });
+    return true;
+  }
+
+  if (message.type === 'DELETE_PAGE_BY_URL' && typeof message.url === 'string') {
+    const encoded = encodeURIComponent(message.url);
+    fetch(`${API_BASE}/pages/by-url?url=${encoded}`, { method: 'DELETE' })
+      .then((res) => (res.ok ? res.json() : res.text().then((t) => Promise.reject(new Error(t)))))
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        console.log('HindSite: Delete page by URL failed', err.message);
+        sendResponse({ ok: false, error: err.message });
+      });
+    return true;
+  }
 });
 
 function openQuickSearchWindow() {

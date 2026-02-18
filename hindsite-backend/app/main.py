@@ -175,6 +175,25 @@ def list_pages(limit: int = 50, db: Session = Depends(get_db)):
     ]
 
 
+@app.delete("/pages/all")
+def delete_all_pages(db: Session = Depends(get_db)):
+    """Delete all captured pages (used by extension Clear All)."""
+    deleted = db.query(CapturedPage).delete()
+    db.commit()
+    return {"status": "deleted", "count": deleted}
+
+
+@app.delete("/pages/by-url")
+def delete_page_by_url(url: str, db: Session = Depends(get_db)):
+    """Delete a captured page by URL (used by extension single-card delete)."""
+    page = db.query(CapturedPage).filter(CapturedPage.url == url).first()
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+    db.delete(page)
+    db.commit()
+    return {"status": "deleted", "id": page.id}
+
+
 @app.delete("/pages/{page_id}")
 def delete_page(page_id: str, db: Session = Depends(get_db)):
     """Delete a captured page."""
@@ -184,3 +203,4 @@ def delete_page(page_id: str, db: Session = Depends(get_db)):
     db.delete(page)
     db.commit()
     return {"status": "deleted", "id": page_id}
+ 
