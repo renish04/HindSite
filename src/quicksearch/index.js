@@ -3,6 +3,9 @@
 
 const API_BASE = 'http://localhost:8000';
 
+/** Match content script: set false to hide `[HindSite debug]` in this popup’s DevTools console. */
+const HS_THUMB_DEBUG = true;
+
 let qsRecognition = null;
 let qsRecognizing = false;
 let qsSpeechBaseText = '';
@@ -70,6 +73,18 @@ async function performSearch(query) {
       await chrome.windows.update(data.matched_tab.window_id, { focused: true });
       window.close();
     } else if (data.query_type === 'semantic_search' && data.results) {
+      if (HS_THUMB_DEBUG) {
+        const previews = (data.results || []).map((r, i) => ({
+          i,
+          url: (r.url || '').slice(0, 100),
+          hasThumbnailBase64: !!r.thumbnail_base64,
+          thumbnailBase64Length: r.thumbnail_base64 ? r.thumbnail_base64.length : 0
+        }));
+        console.log('[HindSite debug] quicksearch POST /search', {
+          resultCount: data.results.length,
+          previews
+        });
+      }
       displaySearchResults(data.results);
     } else {
       displayNoResults();
@@ -118,16 +133,22 @@ function displaySearchResults(results) {
         const domainDisplay = escapeHtml(r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || '');
         const titleDisplay = escapeHtml(r.title || 'Untitled');
         const urlDisplay = escapeHtml(r.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const imgSrc = r.thumbnail_base64 ? `data:image/jpeg;base64,${escapeHtml(r.thumbnail_base64)}` : '';
         return `
     <div class="result-card" data-url="${escapeHtml(r.url)}" style="
       background: rgba(255,255,255,0.05);
-      padding: 18px 20px;
+      padding: 0;
       margin-bottom: 12px;
       border-radius: 12px;
       cursor: pointer;
       transition: background 0.2s, box-shadow 0.2s;
       border: 1px solid rgba(255,255,255,0.06);
+      overflow: hidden;
     ">
+      <div style="width:100%; aspect-ratio:8/5; background:rgba(0,0,0,0.25);">
+        ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />` : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">No preview</div>'}
+      </div>
+      <div style="padding: 14px 18px;">
       <div style="color: #e2e8f0; font-weight: 600; font-size: 16px; margin-bottom: 6px; letter-spacing: 0.01em; line-height: 1.35;">
         ${domainDisplay || 'URL'}
       </div>
@@ -139,6 +160,7 @@ function displaySearchResults(results) {
       </div>
       <div style="color: #94a3b8; font-size: 13px; line-height: 1.5;">
         ${escapeHtml(r.snippet || '')}
+      </div>
       </div>
     </div>
   `;

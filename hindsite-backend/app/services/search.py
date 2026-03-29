@@ -1,3 +1,4 @@
+import base64
 import os
 from urllib.parse import urlparse
 from sqlalchemy.orm import Session
@@ -40,7 +41,7 @@ class SearchService:
         # Step 2: Vector search only (pgvector)
         print("[HindSite SEMANTIC] [vector] Running pgvector similarity search (candidate_limit=%d)" % candidate_limit)
         sql_vector = text("""
-            SELECT id, url, title, domain, content, time_spent, scroll_percent, captured_at,
+            SELECT id, url, title, domain, content, time_spent, scroll_percent, captured_at, thumbnail,
                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
             FROM captured_pages
             WHERE embedding IS NOT NULL
@@ -84,6 +85,7 @@ class SearchService:
                     continue
 
                 candidate = candidates[rerank_result.index]
+                tb = base64.b64encode(candidate.thumbnail).decode() if getattr(candidate, "thumbnail", None) else None
                 results.append(
                     PageResult(
                         id=candidate.id,
@@ -94,6 +96,7 @@ class SearchService:
                         similarity=round(rerank_result.relevance_score, 3),
                         time_spent=candidate.time_spent,
                         captured_at=candidate.captured_at,
+                        thumbnail_base64=tb,
                     )
                 )
 
@@ -114,6 +117,7 @@ class SearchService:
         for row in candidates:
             if row.similarity < 0.35:
                 continue
+            tb = base64.b64encode(row.thumbnail).decode() if getattr(row, "thumbnail", None) else None
             results.append(
                 PageResult(
                     id=row.id,
@@ -124,6 +128,7 @@ class SearchService:
                     similarity=round(row.similarity, 3),
                     time_spent=row.time_spent,
                     captured_at=row.captured_at,
+                    thumbnail_base64=tb,
                 )
             )
         print("[HindSite SEMANTIC] [fallback] Returning %d results" % len(results))

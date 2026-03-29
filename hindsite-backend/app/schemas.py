@@ -11,6 +11,12 @@ class PageCapture(BaseModel):
     domain: Optional[str] = None
     summary: Optional[str] = None
     timestamp: Optional[str] = None
+    thumbnail: Optional[str] = None  # base64 JPEG
+
+
+class ThumbnailUpdate(BaseModel):
+    url: str
+    thumbnail: str  # raw base64 JPEG (no data: prefix)
 
 
 class OpenTab(BaseModel):
@@ -40,6 +46,7 @@ class PageResult(BaseModel):
     similarity: float
     time_spent: Optional[int]
     captured_at: datetime
+    thumbnail_base64: Optional[str] = None
 
 
 class TabSwitchResult(BaseModel):

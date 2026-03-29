@@ -4,7 +4,12 @@
   "version": "1.0.0",
   "description": "Automatically saves important webpages based on time and scroll behavior",
   "permissions": [
-    "storage","tabs"
+    "storage",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "icons": {
     "16": "src/assets/icons/ext-icon-16.png",

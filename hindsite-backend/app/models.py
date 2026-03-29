@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, LargeBinary
 from pgvector.sqlalchemy import Vector
 from app.database import Base
 import uuid
@@ -19,3 +19,4 @@ class CapturedPage(Base):
     word_count = Column(Integer)
     embedding = Column(Vector(1024))  # Cohere embed-english-v3.0 dimensions
     captured_at = Column(DateTime, default=datetime.utcnow, index=True)
+    thumbnail = Column(LargeBinary, nullable=True)

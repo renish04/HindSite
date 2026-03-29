@@ -1,4 +1,6 @@
+import base64
 import logging
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
 from app.models import CapturedPage
-from app.schemas import PageCapture, PageResult, SearchQuery, SearchResponse
+from app.schemas import PageCapture, PageResult, SearchQuery, SearchResponse, ThumbnailUpdate
 from app.services.embeddings import embedder
 from app.services.router import query_router
 from app.services.search import search_service
@@ -37,6 +39,17 @@ except ProgrammingError as e:
             "Table 'captured_pages' does not exist. Create it: python -m app.init_db "
             "(use a DB user with CREATE permission, e.g. postgres)."
         )
+except Exception:
+    pass
+
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN thumbnail BYTEA"))
+        conn.commit()
+except ProgrammingError as e:
+    msg = str(e.orig) if getattr(e, "orig", None) else str(e)
+    if "already exists" not in msg.lower():
+        logger.warning("Could not add thumbnail column (may already exist): %s", e)
 except Exception:
     pass
 
@@ -69,11 +82,43 @@ def health_check():
     return {"status": "healthy", "message": "HindSite API is running"}
 
 
+def _decode_thumbnail_b64(raw: Optional[str]):
+    if not raw:
+        return None
+    s = "".join(raw.split())
+    try:
+        return base64.b64decode(s, validate=True)
+    except Exception:
+        try:
+            return base64.b64decode(s, validate=False)
+        except Exception:
+            return None
+
+
+@app.post("/pages/thumbnail")
+def update_page_thumbnail(body: ThumbnailUpdate, db: Session = Depends(get_db)):
+    """Attach or replace thumbnail for an existing captured page (same URL)."""
+    page = db.query(CapturedPage).filter(CapturedPage.url == body.url).first()
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found for URL")
+    thumb_bytes = _decode_thumbnail_b64(body.thumbnail)
+    if not thumb_bytes:
+        raise HTTPException(status_code=400, detail="Invalid thumbnail base64")
+    page.thumbnail = thumb_bytes
+    db.commit()
+    return {"status": "updated", "id": page.id}
+
+
 @app.post("/capture")
 def capture_page(page: PageCapture, db: Session = Depends(get_db)):
     """Capture a page with embedding generation."""
     existing = db.query(CapturedPage).filter(CapturedPage.url == page.url).first()
+    thumb_bytes = _decode_thumbnail_b64(page.thumbnail)
+
     if existing:
+        if thumb_bytes:
+            existing.thumbnail = thumb_bytes
+            db.commit()
         return {"status": "exists", "id": existing.id}
 
     content = clean_content(page.content)
@@ -94,6 +139,7 @@ def capture_page(page: PageCapture, db: Session = Depends(get_db)):
         scroll_percent=page.metadata.get("scrollPercent", 0),
         word_count=page.metadata.get("wordCount", 0),
         embedding=embedding,
+        thumbnail=thumb_bytes or None,
     )
 
     db.add(db_page)
@@ -170,6 +216,7 @@ def list_pages(limit: int = 50, db: Session = Depends(get_db)):
             similarity=1.0,
             time_spent=p.time_spent,
             captured_at=p.captured_at,
+            thumbnail_base64=base64.b64encode(p.thumbnail).decode() if p.thumbnail else None,
         )
         for p in pages
     ]

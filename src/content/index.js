@@ -35,6 +35,82 @@ let hsSpeechSupported = null;
 
 console.log('🔍 HindSite: Monitoring started');
 
+/** Set false to silence `[HindSite debug]` lines in this tab’s DevTools console. */
+const HS_THUMB_DEBUG = true;
+
+function hsThumbDebug(label, payload) {
+  if (!HS_THUMB_DEBUG) return;
+  if (payload !== undefined) {
+    console.log('[HindSite debug]', label, payload);
+  } else {
+    console.log('[HindSite debug]', label);
+  }
+}
+
+/** Avoid logging full base64 from SEARCH results. */
+function summarizeDebugResponse(messageType, response) {
+  if (messageType === 'SEARCH' && response && Array.isArray(response.results)) {
+    return {
+      action: response.action,
+      error: response.error,
+      resultCount: response.results.length,
+      previews: response.results.map((r) => ({
+        url: (r.url || '').slice(0, 100),
+        hasThumbnailBase64: !!r.thumbnail_base64,
+        thumbnailBase64Length: r.thumbnail_base64 ? r.thumbnail_base64.length : 0
+      }))
+    };
+  }
+  return response;
+}
+
+function extensionContextValid() {
+  try {
+    return !!(chrome.runtime && chrome.runtime.id);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * After reloading the extension on chrome://extensions, old content scripts keep running but
+ * chrome.runtime APIs throw "Extension context invalidated". Guard all sends (especially after setTimeout).
+ */
+function safeSendMessage(message, callback) {
+  if (!extensionContextValid()) {
+    hsThumbDebug('safeSendMessage: extension context invalid (reload extension → refresh this tab)', {
+      type: message.type
+    });
+    if (callback) queueMicrotask(() => callback());
+    return;
+  }
+  try {
+    if (callback) {
+      chrome.runtime.sendMessage(message, (response) => {
+        hsThumbDebug(`← ${message.type}`, {
+          response: summarizeDebugResponse(message.type, response),
+          lastError: chrome.runtime.lastError && chrome.runtime.lastError.message
+        });
+        callback(response);
+      });
+    } else {
+      const ret = chrome.runtime.sendMessage(message);
+      if (ret && typeof ret.then === 'function') {
+        ret
+          .then((response) => {
+            hsThumbDebug(`← ${message.type}`, { response });
+          })
+          .catch((err) => {
+            hsThumbDebug(`← ${message.type} (promise rejected)`, { err: String(err) });
+          });
+      }
+    }
+  } catch (e) {
+    hsThumbDebug('safeSendMessage: thrown', { type: message.type, error: String(e) });
+    if (callback) queueMicrotask(() => callback());
+  }
+}
+
 // ============================================
 // PAGE ANALYSIS
 // ============================================
@@ -52,8 +128,74 @@ function analyzePageHeight() {
   }
 }
 
+function scheduleThumbnailCapture(delayMs, source) {
+  const href = window.location.href;
+  if (!href.startsWith('http://') && !href.startsWith('https://')) {
+    hsThumbDebug('thumbnail: skip schedule (URL not http/https)', { href, source });
+    return;
+  }
+  hsThumbDebug('thumbnail: schedule delayed PAGE_LOADED_FOR_THUMBNAIL', { delayMs, source, href });
+  setTimeout(() => {
+    hsThumbDebug('thumbnail: timer fired', {
+      source,
+      href,
+      contextOk: extensionContextValid()
+    });
+    safeSendMessage({ type: 'PAGE_LOADED_FOR_THUMBNAIL' }, () => {});
+  }, delayMs);
+}
+
 window.addEventListener('load', () => {
   analyzePageHeight();
+  scheduleThumbnailCapture(2500, 'window.load');
+});
+
+// After the user focuses this tab again, capture (needed because captureVisibleTab only sees the active tab).
+let docWasHidden = false;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') docWasHidden = true;
+  else if (document.visibilityState === 'visible' && docWasHidden && document.readyState === 'complete') {
+    scheduleThumbnailCapture(600, 'visibilitychange');
+  }
+});
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== 'RESIZE_THUMBNAIL' || !msg.dataUrl) return;
+  hsThumbDebug('RESIZE_THUMBNAIL: raw capture received in page', {
+    dataUrlLength: msg.dataUrl.length
+  });
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const tw = 800;
+      const th = 500;
+      const aspect = th / tw;
+      const sw = img.width;
+      const sh = img.height;
+      const cropH = Math.min(sh, sw * aspect);
+      const canvas = document.createElement('canvas');
+      canvas.width = tw;
+      canvas.height = th;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, sw, cropH, 0, 0, tw, th);
+      const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      hsThumbDebug('RESIZE_THUMBNAIL: JPEG ready', {
+        jpegDataUrlLength: jpegDataUrl.length,
+        cropSize: `${tw}x${th}`,
+        sourceImage: `${sw}x${sh}`
+      });
+      sendResponse({ dataUrl: jpegDataUrl });
+    } catch (err) {
+      hsThumbDebug('RESIZE_THUMBNAIL: canvas error', { error: String(err) });
+      sendResponse({ dataUrl: null });
+    }
+  };
+  img.onerror = () => {
+    hsThumbDebug('RESIZE_THUMBNAIL: image decode failed');
+    sendResponse({ dataUrl: null });
+  };
+  img.src = msg.dataUrl;
+  return true;
 });
 
 // ============================================
@@ -328,6 +470,10 @@ function extractContent() {
   };
 
   console.log('📦 Content extracted:', { url, title, domain, wordCount });
+  hsThumbDebug('extractContent: thresholds met → saveToStorage next', {
+    url,
+    wordCount
+  });
   saveToStorage(pageData);
 }
 
@@ -337,23 +483,37 @@ function extractContent() {
 function saveToStorage(pageData) {
   chrome.storage.local.get(['savedPages'], (result) => {
     const savedPages = result.savedPages || [];
-
     const urlExists = savedPages.some((page) => page.url === pageData.url);
 
-    if (urlExists) {
-      console.log('⚠️ Page already saved, skipping duplicate');
-      return;
-    }
+    // Capture immediately before save so captureVisibleTab matches this tab (active) and thumb is fresh.
+    hsThumbDebug('saveToStorage: start', {
+      url: pageData.url,
+      urlExistsInLocalStorage: urlExists
+    });
+    safeSendMessage({ type: 'PREPARE_THUMBNAIL_FOR_SAVE' }, (prepareRes) => {
+      if (chrome.runtime.lastError) {
+        console.warn('HindSite: thumbnail prepare:', chrome.runtime.lastError.message);
+      }
+      hsThumbDebug('saveToStorage: after PREPARE (see ← PREPARE_THUMBNAIL_FOR_SAVE above)', {
+        prepareResult: prepareRes,
+        url: pageData.url
+      });
 
-    savedPages.push(pageData);
+      if (urlExists) {
+        console.log('⚠️ Page already saved locally — syncing thumbnail to backend only');
+        safeSendMessage({ type: 'SYNC_THUMBNAIL_TO_BACKEND', url: pageData.url }, () => {});
+        return;
+      }
 
-    chrome.storage.local.set({ savedPages: savedPages }, () => {
-      console.log('✅ Page saved to storage!');
-      console.log(`   Total pages saved: ${savedPages.length}`);
-      showNotification();
+      savedPages.push(pageData);
 
-      // Ask background to POST to backend (avoids page-origin permission prompts)
-      chrome.runtime.sendMessage({ type: 'SEND_TO_BACKEND', pageData }).catch(() => {});
+      chrome.storage.local.set({ savedPages: savedPages }, () => {
+        console.log('✅ Page saved to storage!');
+        console.log(`   Total pages saved: ${savedPages.length}`);
+        showNotification();
+
+        safeSendMessage({ type: 'SEND_TO_BACKEND', pageData }, () => {});
+      });
     });
   });
 }
@@ -655,7 +815,17 @@ function performOverlaySearch(query) {
     setTimeout(() => sendChip.classList.remove('hs-press'), 180);
   }
 
-  chrome.runtime.sendMessage({ type: 'SEARCH', query: q }, (response) => {
+  if (!extensionContextValid()) {
+    const resultsEl = ensureOverlayResultsContainer();
+    if (resultsEl) {
+      resultsEl.innerHTML =
+        '<div style="color:#f87171;text-align:center;padding:12px;">Extension was reloaded — refresh this page (F5)</div>';
+      resultsEl.style.display = 'block';
+    }
+    return;
+  }
+
+  safeSendMessage({ type: 'SEARCH', query: q }, (response) => {
     if (chrome.runtime.lastError) {
       const resultsEl = ensureOverlayResultsContainer();
       if (resultsEl) {
@@ -688,17 +858,25 @@ function showOverlayResults(results) {
       const urlRaw = (r.url || '').replace(/"/g, '&quot;');
       const domainDisplay = (r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       const titleDisplay = (r.title || 'Untitled').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const thumbB64 = r.thumbnail_base64 || '';
+      const imgBlock = thumbB64
+        ? `<img src="data:image/jpeg;base64,${thumbB64.replace(/"/g, '&quot;')}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />`
+        : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">No preview</div>';
       return `<div class="hs-result-card" data-url="${urlRaw}" style="
-        padding: 16px 18px;
+        padding: 0;
         margin-bottom: 10px;
         border-radius: 12px;
         background: rgba(255,255,255,0.06);
         cursor: pointer;
         border: 1px solid rgba(255,255,255,0.08);
         transition: background 0.2s, box-shadow 0.2s;
+        overflow: hidden;
       " title="${urlRaw}">
+        <div style="width:100%;aspect-ratio:8/5;background:rgba(0,0,0,0.25);">${imgBlock}</div>
+        <div style="padding: 14px 16px;">
         <div style="color: #e2e8f0; font-weight: 600; font-size: 16px; margin-bottom: 4px; line-height: 1.35;">${domainDisplay || 'URL'}</div>
         <div style="color: #94a3b8; font-size: 14px; font-weight: 500;">${titleDisplay}</div>
+        </div>
       </div>`;
     })
     .join('');
@@ -706,7 +884,7 @@ function showOverlayResults(results) {
   container.querySelectorAll('.hs-result-card').forEach((el) => {
     el.addEventListener('click', () => {
       const url = el.getAttribute('data-url');
-      if (url) chrome.runtime.sendMessage({ type: 'OPEN_URL', url });
+      if (url) safeSendMessage({ type: 'OPEN_URL', url });
       hideOverlay();
     });
     el.addEventListener('mouseenter', () => {
