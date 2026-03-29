@@ -21,6 +21,33 @@ class SearchService:
                 "COHERE_API_KEY is not set. Add it to .env to use semantic search."
             )
         self.cohere_client = cohere.Client(api_key)
+        # Rerank inputs have practical/hard size limits (tokens/bytes). Keep this configurable.
+        # Set COHERE_RERANK_MAX_CHARS=0 to disable truncation (not recommended for large pages).
+        try:
+            self.rerank_max_chars = int(os.getenv("COHERE_RERANK_MAX_CHARS", "12000"))
+        except Exception:
+            self.rerank_max_chars = 12000
+
+    def _build_rerank_doc(self, row) -> str:
+        title = (getattr(row, "title", None) or "").strip()
+        url = (getattr(row, "url", None) or "").strip()
+        content = (getattr(row, "content", None) or "").strip()
+
+        parts = []
+        if title:
+            parts.append(f"Title: {title}")
+        if url:
+            parts.append(f"URL: {url}")
+        if content:
+            if self.rerank_max_chars and self.rerank_max_chars > 0:
+                parts.append("Content: " + content[: self.rerank_max_chars])
+            else:
+                parts.append("Content: " + content)
+
+        # Ensure rerank always gets something meaningful, even if content is empty.
+        if not parts:
+            return ""
+        return "\n".join(parts)
 
     def search_pages(self, query: str, db: Session, limit: int = 3) -> List[PageResult]:
         """
@@ -62,7 +89,9 @@ class SearchService:
             print("[HindSite SEMANTIC] ========== Semantic search finished ==========")
             return []
 
-        documents = [row.content[:2000] if row.content else "" for row in candidates]
+        documents = [self._build_rerank_doc(row) for row in candidates]
+        empty_docs = sum(1 for d in documents if not d)
+        print("[HindSite SEMANTIC] [rerank] Prepared docs: %d (empty=%d)" % (len(documents), empty_docs))
         print("[HindSite SEMANTIC] [rerank] Calling Cohere rerank (model=rerank-english-v3.0, top_n=%d, docs=%d)" % (limit, len(documents)))
 
         try:
@@ -80,11 +109,11 @@ class SearchService:
 
             results = []
             for rerank_result in rerank_response.results:
-                # Only accept scores above 0 (exclude 0.0000; use min threshold so display-zero is out)
-                if rerank_result.relevance_score <= 0.0001:
-                    continue
-
                 candidate = candidates[rerank_result.index]
+                if rerank_result.relevance_score <= 0.001:
+                    continue
+                if not documents[rerank_result.index]:
+                    continue
                 tb = base64.b64encode(candidate.thumbnail).decode() if getattr(candidate, "thumbnail", None) else None
                 results.append(
                     PageResult(
@@ -100,7 +129,7 @@ class SearchService:
                     )
                 )
 
-            print("[HindSite SEMANTIC] After filter (score > 0.0001): %d results" % len(results))
+            print("[HindSite SEMANTIC] After filter (score > 0.001 and non-empty docs): %d results" % len(results))
             print("[HindSite SEMANTIC] ========== Semantic search finished ==========")
             return results
 
@@ -110,12 +139,12 @@ class SearchService:
 
     def _fallback_results(self, candidates, query: str) -> List[PageResult]:
         """Fallback when reranking fails."""
-        print("[HindSite SEMANTIC] [fallback] Using vector similarity only (threshold >= 0.35)")
+        print("[HindSite SEMANTIC] [fallback] Using vector similarity only (threshold >= 0.20)")
         for i, row in enumerate(candidates):
             print("[HindSite SEMANTIC]   [%d] id=%s url=%s similarity=%.4f" % (i, getattr(row, "id", ""), (getattr(row, "url", "") or "")[:60], getattr(row, "similarity", 0)))
         results = []
         for row in candidates:
-            if row.similarity < 0.35:
+            if row.similarity < 0.20:
                 continue
             tb = base64.b64encode(row.thumbnail).decode() if getattr(row, "thumbnail", None) else None
             results.append(
