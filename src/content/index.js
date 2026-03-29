@@ -685,6 +685,30 @@ function createOverlayIfNeeded() {
         word-break: break-all;
         margin-bottom: 0;
       }
+      #hindsite-overlay-root .hs-search-loading-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 40px 24px;
+        width: 100%;
+        box-sizing: border-box;
+        color: #94a3b8;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+      }
+      #hindsite-overlay-root .hs-search-loading-spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid rgba(148,163,184,0.22);
+        border-top-color: #94a3b8;
+        border-radius: 50%;
+        animation: hsSearchSpin 0.7s linear infinite;
+      }
+      @keyframes hsSearchSpin {
+        to { transform: rotate(360deg); }
+      }
       #hindsite-overlay-root .hs-panel {
         position: relative;
         z-index: 2;
@@ -945,12 +969,6 @@ function performOverlaySearch(query) {
   const q = (query || (hsOverlayInput && hsOverlayInput.value) || '').trim();
   if (!q) return;
 
-  if (hsOverlayRoot) {
-    hsOverlayRoot.classList.remove('hs-results-focus');
-    const prev = hsOverlayRoot.querySelector('.hs-overlay-results');
-    if (prev) prev.innerHTML = '';
-  }
-
   // In-out press animation on send button (from Enter or click)
   const sendChip = hsOverlayRoot && hsOverlayRoot.querySelector('.hs-send-chip');
   if (sendChip) {
@@ -966,6 +984,13 @@ function performOverlaySearch(query) {
       hsOverlayRoot.classList.add('hs-results-focus');
     }
     return;
+  }
+
+  const loadingEl = ensureOverlayResultsContainer();
+  if (loadingEl && hsOverlayRoot) {
+    loadingEl.innerHTML =
+      '<div class="hs-search-loading-wrap" role="status" aria-live="polite"><div class="hs-search-loading-spinner" aria-hidden="true"></div><span>Searching…</span></div>';
+    hsOverlayRoot.classList.add('hs-results-focus');
   }
 
   safeSendMessage({ type: 'SEARCH', query: q }, (response) => {

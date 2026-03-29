@@ -18,10 +18,23 @@ let qsSpeechSupported = null;
 let qsSavedWindowBounds = null;
 
 function clearQuickSearchResultState() {
-  document.body.classList.remove('qs-has-results', 'qs-results-visible');
+  document.body.classList.remove('qs-has-results', 'qs-results-visible', 'qs-search-loading');
   const c = document.getElementById('resultsContainer');
   if (c) c.innerHTML = '';
   restoreQuickSearchWindowBounds();
+}
+
+function showQuickSearchLoading() {
+  const container = document.getElementById('resultsContainer');
+  if (!container) return;
+  document.body.classList.add('qs-results-visible', 'qs-search-loading');
+  document.body.classList.remove('qs-has-results');
+  expandQuickSearchWindowBounds();
+  container.innerHTML = `
+    <div class="qs-loading-wrap" role="status" aria-live="polite">
+      <div class="qs-loading-spinner" aria-hidden="true"></div>
+      <span class="qs-loading-label">Searching…</span>
+    </div>`;
 }
 
 function expandQuickSearchWindowBounds() {
@@ -65,6 +78,7 @@ async function performSearch(query) {
   if (!query.trim()) return;
 
   clearQuickSearchResultState();
+  showQuickSearchLoading();
 
   // In-out press animation on send button (Enter or click)
   const sendChip = document.querySelector('.send-chip');
@@ -147,6 +161,8 @@ function displaySearchResults(results) {
   const container = document.getElementById('resultsContainer');
   if (!container) return;
 
+  document.body.classList.remove('qs-search-loading');
+
   if (results.length === 0) {
     container.innerHTML =
       '<div style="color:#94a3b8;text-align:center;padding:24px;width:100%;">No matching pages found</div>';
@@ -217,7 +233,7 @@ function displayError(message) {
     container.innerHTML = `
       <div style="color:#f87171;text-align:center;padding:24px;width:100%;">${escapeHtml(message)}</div>`;
     document.body.classList.add('qs-results-visible');
-    document.body.classList.remove('qs-has-results');
+    document.body.classList.remove('qs-has-results', 'qs-search-loading');
   }
 }
 
