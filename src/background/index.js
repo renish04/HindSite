@@ -4,7 +4,8 @@
 // ============================================
 
 const API_BASE = 'http://localhost:8000';
-const THUMB_TTL_MS = 60 * 60 * 1000;
+// Keep pre-captured thumbnails for a short window until the page is actually saved.
+const THUMB_TTL_MS = 20 * 60 * 1000;
 
 function normUrl(u) {
   if (!u) return '';

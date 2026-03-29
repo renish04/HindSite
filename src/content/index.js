@@ -142,13 +142,31 @@ function scheduleThumbnailCapture(delayMs, source) {
       href,
       contextOk: extensionContextValid()
     });
-    safeSendMessage({ type: 'PAGE_LOADED_FOR_THUMBNAIL' }, () => {});
+    // Ensure we capture the top of the page (viewport at scroll=0) when the URL is hit.
+    const prevScrollX = window.scrollX;
+    const prevScrollY = window.scrollY;
+    try {
+      if (prevScrollX !== 0 || prevScrollY !== 0) window.scrollTo(0, 0);
+    } catch (_) {
+      // Ignore scroll restoration failures (some sites block programmatic scroll).
+    }
+
+    safeSendMessage({ type: 'PAGE_LOADED_FOR_THUMBNAIL' }, () => {
+      requestAnimationFrame(() => {
+        try {
+          if (prevScrollX !== 0 || prevScrollY !== 0) window.scrollTo(prevScrollX, prevScrollY);
+        } catch (_) {
+          // ignore
+        }
+      });
+    });
   }, delayMs);
 }
 
 window.addEventListener('load', () => {
   analyzePageHeight();
-  scheduleThumbnailCapture(2500, 'window.load');
+  // Capture soon after URL load (top-of-page viewport) and keep it in temp storage.
+  scheduleThumbnailCapture(200, 'window.load');
 });
 
 // After the user focuses this tab again, capture (needed because captureVisibleTab only sees the active tab).
@@ -156,7 +174,8 @@ let docWasHidden = false;
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') docWasHidden = true;
   else if (document.visibilityState === 'visible' && docWasHidden && document.readyState === 'complete') {
-    scheduleThumbnailCapture(600, 'visibilitychange');
+    // When returning focus, refresh the top-of-page thumbnail viewport.
+    scheduleThumbnailCapture(200, 'visibilitychange');
   }
 });
 
@@ -488,35 +507,27 @@ function saveToStorage(pageData) {
     const savedPages = result.savedPages || [];
     const urlExists = savedPages.some((page) => page.url === pageData.url);
 
-    // Capture immediately before save so captureVisibleTab matches this tab (active) and thumb is fresh.
     hsThumbDebug('saveToStorage: start', {
       url: pageData.url,
       urlExistsInLocalStorage: urlExists
     });
-    safeSendMessage({ type: 'PREPARE_THUMBNAIL_FOR_SAVE' }, (prepareRes) => {
-      if (chrome.runtime.lastError) {
-        console.warn('HindSite: thumbnail prepare:', chrome.runtime.lastError.message);
-      }
-      hsThumbDebug('saveToStorage: after PREPARE (see ← PREPARE_THUMBNAIL_FOR_SAVE above)', {
-        prepareResult: prepareRes,
-        url: pageData.url
-      });
 
-      if (urlExists) {
-        console.log('⚠️ Page already saved locally — syncing thumbnail to backend only');
-        safeSendMessage({ type: 'SYNC_THUMBNAIL_TO_BACKEND', url: pageData.url }, () => {});
-        return;
-      }
+    // IMPORTANT: Do not capture here anymore.
+    // Thumbnail is captured when the URL is hit (PAGE_LOADED_FOR_THUMBNAIL) and cached in thumbTemp.
+    if (urlExists) {
+      console.log('⚠️ Page already saved locally — syncing thumbnail to backend only');
+      safeSendMessage({ type: 'SYNC_THUMBNAIL_TO_BACKEND', url: pageData.url }, () => {});
+      return;
+    }
 
-      savedPages.push(pageData);
+    savedPages.push(pageData);
 
-      chrome.storage.local.set({ savedPages: savedPages }, () => {
-        console.log('✅ Page saved to storage!');
-        console.log(`   Total pages saved: ${savedPages.length}`);
-        showNotification();
+    chrome.storage.local.set({ savedPages: savedPages }, () => {
+      console.log('✅ Page saved to storage!');
+      console.log(`   Total pages saved: ${savedPages.length}`);
+      showNotification();
 
-        safeSendMessage({ type: 'SEND_TO_BACKEND', pageData }, () => {});
-      });
+      safeSendMessage({ type: 'SEND_TO_BACKEND', pageData }, () => {});
     });
   });
 }
