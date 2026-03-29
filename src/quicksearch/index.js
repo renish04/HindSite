@@ -277,7 +277,16 @@ document.addEventListener('DOMContentLoaded', () => {
     performSearch(inp ? inp.value : '');
   });
 
-  startQuickSearchSpeech();
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.code !== 'KeyV') return;
+      e.preventDefault();
+      toggleQuickSearchSpeech();
+    },
+    true
+  );
 });
 
 function ensureQuickSearchSpeechSupport() {

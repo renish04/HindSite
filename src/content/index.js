@@ -26,6 +26,7 @@ let hsOverlayInput = null;
 let hsOverlayVisible = false;
 let hsOverlayMicBtn = null;
 let hsOverlayHideTimer = null;
+let hsOverlayAltVKeyBound = false;
 
 // Speech recognition state (overlay)
 let hsRecognition = null;
@@ -782,7 +783,7 @@ function createOverlayIfNeeded() {
 
   const micBtn = document.createElement('button');
   micBtn.type = 'button';
-  micBtn.title = 'Voice input';
+  micBtn.title = 'Voice input (Alt+V)';
   micBtn.className = 'hs-mic';
   micBtn.style.cssText = `
     flex: 0 0 auto;
@@ -835,6 +836,21 @@ function createOverlayIfNeeded() {
   hsOverlayRoot.appendChild(main);
   hsOverlayRoot.appendChild(panel);
   document.documentElement.appendChild(hsOverlayRoot);
+
+  if (!hsOverlayAltVKeyBound) {
+    hsOverlayAltVKeyBound = true;
+    document.addEventListener(
+      'keydown',
+      (e) => {
+        if (!hsOverlayVisible) return;
+        if (!e.altKey || e.ctrlKey || e.metaKey) return;
+        if (e.code !== 'KeyV') return;
+        e.preventDefault();
+        toggleOverlaySpeech();
+      },
+      true
+    );
+  }
 
   hsOverlayInput = input;
   hsOverlayMicBtn = micBtn;
@@ -893,9 +909,6 @@ function showOverlay() {
     hsOverlayInput && hsOverlayInput.focus();
     autoResizeOverlayInput();
   }, 0);
-
-  // Auto-start voice input when overlay opens, if supported
-  startOverlaySpeech();
 }
 
 function hideOverlay() {
