@@ -15,8 +15,56 @@ let qsSpeechSupported = null;
   if (window.self === window.top) document.body.classList.add('standalone');
 })();
 
+let qsSavedWindowBounds = null;
+
+function clearQuickSearchResultState() {
+  document.body.classList.remove('qs-has-results', 'qs-results-visible');
+  const c = document.getElementById('resultsContainer');
+  if (c) c.innerHTML = '';
+  restoreQuickSearchWindowBounds();
+}
+
+function expandQuickSearchWindowBounds() {
+  chrome.windows.getCurrent((win) => {
+    if (!win || win.id == null) return;
+    if (!qsSavedWindowBounds) {
+      qsSavedWindowBounds = {
+        width: win.width,
+        height: win.height,
+        left: win.left,
+        top: win.top
+      };
+    }
+    const sw = screen.availWidth;
+    const sh = screen.availHeight;
+    const w = Math.round(sw * 0.92);
+    const h = Math.round(sh * 0.9);
+    const left = Math.max(0, Math.round((sw - w) / 2));
+    const top = Math.max(0, Math.round((sh - h) / 2));
+    chrome.windows.update(win.id, { width: w, height: h, left, top, state: 'normal' });
+  });
+}
+
+function restoreQuickSearchWindowBounds() {
+  if (!qsSavedWindowBounds) return;
+  chrome.windows.getCurrent((win) => {
+    if (!win || win.id == null) return;
+    const b = qsSavedWindowBounds;
+    chrome.windows.update(win.id, {
+      width: b.width,
+      height: b.height,
+      left: b.left,
+      top: b.top,
+      state: 'normal'
+    });
+    qsSavedWindowBounds = null;
+  });
+}
+
 async function performSearch(query) {
   if (!query.trim()) return;
+
+  clearQuickSearchResultState();
 
   // In-out press animation on send button (Enter or click)
   const sendChip = document.querySelector('.send-chip');
@@ -96,90 +144,49 @@ async function performSearch(query) {
 }
 
 function displaySearchResults(results) {
-  let container = document.getElementById('resultsContainer');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'resultsContainer';
-    container.style.cssText = `
-      width: 100%;
-      overflow: visible;
-      background: rgba(20, 20, 35, 0.98);
-      border-radius: 12px 12px 0 0;
-      padding: 14px;
-      margin-bottom: 12px;
-      box-sizing: border-box;
-    `;
-    const wrap = document.querySelector('.quicksearch-wrap');
-    const shell = document.querySelector('.shell');
-    if (wrap && shell) {
-      wrap.insertBefore(container, shell);
-    } else {
-      document.body.appendChild(container);
-    }
-  }
+  const container = document.getElementById('resultsContainer');
+  if (!container) return;
 
   if (results.length === 0) {
-    container.innerHTML = `
-      <div style="color: #888; text-align: center; padding: 20px;">
-        No matching pages found
-      </div>
-    `;
+    container.innerHTML =
+      '<div style="color:#94a3b8;text-align:center;padding:24px;width:100%;">No matching pages found</div>';
+    document.body.classList.add('qs-results-visible');
+    document.body.classList.remove('qs-has-results');
+    restoreQuickSearchWindowBounds();
     return;
   }
 
+  document.body.classList.add('qs-results-visible', 'qs-has-results');
+  expandQuickSearchWindowBounds();
+
   container.innerHTML = results
-    .map(
-      (r) => {
-        const domainDisplay = escapeHtml(r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || '');
-        const titleDisplay = escapeHtml(r.title || 'Untitled');
-        const urlDisplay = escapeHtml(r.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
-        const imgSrc = r.thumbnail_base64 ? `data:image/jpeg;base64,${escapeHtml(r.thumbnail_base64)}` : '';
-        return `
-    <div class="result-card" data-url="${escapeHtml(r.url)}" style="
-      background: rgba(255,255,255,0.05);
-      padding: 0;
-      margin-bottom: 12px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: background 0.2s, box-shadow 0.2s;
-      border: 1px solid rgba(255,255,255,0.06);
-      overflow: hidden;
-    ">
-      <div style="width:100%; aspect-ratio:8/5; background:rgba(0,0,0,0.25);">
-        ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />` : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">No preview</div>'}
+    .map((r) => {
+      const domainDisplay = escapeHtml(
+        r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || ''
+      );
+      const urlAttr = escapeHtml(r.url || '');
+      const imgSrc = r.thumbnail_base64
+        ? `data:image/jpeg;base64,${escapeHtml(r.thumbnail_base64)}`
+        : '';
+      const thumb = imgSrc
+        ? `<img src="${imgSrc}" alt="" />`
+        : '<div class="result-thumb-empty">No preview</div>';
+      return `
+    <div class="result-card" data-url="${urlAttr}">
+      <div class="result-thumb">${thumb}</div>
+      <div class="result-body">
+        <div class="result-head">${domainDisplay || 'URL'}</div>
+        <div class="result-url-preview" title="${urlAttr}">${truncateUrlForCard(r.url, 72)}</div>
       </div>
-      <div style="padding: 14px 18px;">
-      <div style="color: #e2e8f0; font-weight: 600; font-size: 16px; margin-bottom: 6px; letter-spacing: 0.01em; line-height: 1.35;">
-        ${domainDisplay || 'URL'}
-      </div>
-      <div style="color: #94a3b8; font-size: 14px; margin-bottom: 10px; font-weight: 500;">
-        ${titleDisplay}
-      </div>
-      <div style="color: #64748b; font-size: 12px; margin-bottom: 8px; word-break: break-all;">
-        ${urlDisplay || ''} · ${Math.round((r.similarity || 0) * 100)}% match
-      </div>
-      <div style="color: #94a3b8; font-size: 13px; line-height: 1.5;">
-        ${escapeHtml(r.snippet || '')}
-      </div>
-      </div>
-    </div>
-  `;
-      }
-    )
+    </div>`;
+    })
     .join('');
 
   container.querySelectorAll('.result-card').forEach((card) => {
     card.addEventListener('click', () => {
-      chrome.tabs.create({ url: card.dataset.url });
+      const url = card.getAttribute('data-url');
+      if (url) chrome.tabs.create({ url });
       window.close();
-    });
-    card.addEventListener('mouseenter', () => {
-      card.style.background = 'rgba(255,255,255,0.1)';
-      card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-    });
-    card.addEventListener('mouseleave', () => {
-      card.style.background = 'rgba(255,255,255,0.05)';
-      card.style.boxShadow = 'none';
     });
   });
 }
@@ -191,35 +198,27 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/** Full URL for display, truncated with … to fit the card (no duplicate domain line). */
+function truncateUrlForCard(url, maxLen) {
+  if (url == null || url === '') return '';
+  const s = String(url).trim();
+  if (s.length <= maxLen) return escapeHtml(s);
+  return escapeHtml(s.slice(0, maxLen - 3)) + '...';
+}
+
 function displayNoResults() {
   displaySearchResults([]);
 }
 
 function displayError(message) {
-  let container = document.getElementById('resultsContainer');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'resultsContainer';
-    container.style.cssText = `
-      width: 100%;
-      overflow: visible;
-      padding: 14px;
-      margin-bottom: 12px;
-      box-sizing: border-box;
-    `;
-    const wrap = document.querySelector('.quicksearch-wrap');
-    const shell = document.querySelector('.shell');
-    if (wrap && shell) {
-      wrap.insertBefore(container, shell);
-    } else {
-      document.body.appendChild(container);
-    }
+  clearQuickSearchResultState();
+  const container = document.getElementById('resultsContainer');
+  if (container) {
+    container.innerHTML = `
+      <div style="color:#f87171;text-align:center;padding:24px;width:100%;">${escapeHtml(message)}</div>`;
+    document.body.classList.add('qs-results-visible');
+    document.body.classList.remove('qs-has-results');
   }
-  container.innerHTML = `
-    <div style="color: #ff6b6b; text-align: center; padding: 20px;">
-      ${escapeHtml(message)}
-    </div>
-  `;
 }
 
 document.addEventListener('DOMContentLoaded', () => {

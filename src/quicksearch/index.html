@@ -9,41 +9,184 @@
       margin: 0;
       padding: 0;
       width: 100%;
+      min-height: 100%;
       height: 100%;
       background: linear-gradient(135deg, #1a3252 0%, #263e5e 50%, #2c384a 100%);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       box-sizing: border-box;
     }
 
     body.standalone {
-      align-items: flex-end;
-      justify-content: center;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-end;
+      position: relative;
       padding-bottom: 32px;
     }
 
-    .quicksearch-wrap {
+    /* Dims the quick-search window chrome when results are shown (focus on cards) */
+    .qs-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.58);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.22s ease, visibility 0.22s ease;
+      z-index: 0;
+    }
+
+    body.qs-has-results .qs-backdrop {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .qs-main {
+      position: relative;
+      z-index: 1;
+      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-width: 420px;
-      max-width: 560px;
-      width: 46vw;
-      margin: 0 auto;
-      box-sizing: border-box;
+      min-height: 0;
+      width: 100%;
+      pointer-events: none;
     }
 
-    body.standalone .quicksearch-wrap {
+    /* Sit result cards just above the search bar — no huge empty band above */
+    body.qs-has-results .qs-main {
       justify-content: flex-end;
-      padding-bottom: 32px;
+      padding-bottom: 10px;
+    }
+
+    .qs-results {
+      display: none;
+      flex-direction: row;
+      align-items: flex-start;
+      justify-content: center;
+      gap: clamp(12px, 2vw, 24px);
+      width: min(96vw, 1800px);
+      height: min(75vh, calc(100vh - 160px));
+      min-height: 280px;
+      max-height: 75vh;
+      padding: 0 clamp(8px, 2vw, 24px);
+      box-sizing: border-box;
+      pointer-events: auto;
+    }
+
+    body.qs-results-visible .qs-results {
+      display: flex;
+    }
+
+    /* Shrink-wrap row height to thumbnails + footer only */
+    body.qs-has-results .qs-results {
+      height: auto;
+      min-height: 0;
+      max-height: none;
+      align-items: flex-start;
+    }
+
+    body.qs-results-visible:not(.qs-has-results) .qs-results {
+      height: auto;
+      min-height: 100px;
+      max-height: none;
+      align-items: center;
+    }
+
+    .qs-results .result-card {
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: calc(33.333% - 12px);
+      display: flex;
+      flex-direction: column;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .qs-results .result-card:hover {
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+      transform: translateY(-2px);
+    }
+
+    .qs-results .result-thumb {
+      flex: 0 0 auto;
+      width: 100%;
+      line-height: 0;
+      background: rgba(0, 0, 0, 0.28);
+    }
+
+    .qs-results .result-thumb img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .qs-results .result-thumb-empty {
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 12px;
+      line-height: normal;
+    }
+
+    .qs-results .result-body {
+      flex: 0 0 auto;
+      padding: 6px 10px 8px;
+      overflow: hidden;
+    }
+
+    .qs-results .result-head {
+      color: #e2e8f0;
+      font-weight: 600;
+      font-size: 13px;
+      line-height: 1.2;
+      margin-bottom: 2px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    }
+
+    .qs-results .result-url-preview {
+      color: #94a3b8;
+      font-size: 11px;
+      line-height: 1.3;
+      word-break: break-all;
+      margin-bottom: 0;
+    }
+
+    .quicksearch-wrap {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      width: min(560px, 92vw);
+      margin: 0 auto;
+      flex-shrink: 0;
+      pointer-events: none;
+    }
+
+    .quicksearch-wrap .shell {
+      pointer-events: auto;
+      width: 100%;
     }
 
     body.standalone .shell {
       position: relative;
-      z-index: 1;
+      z-index: 2;
     }
 
     .shell {
@@ -182,9 +325,14 @@
       letter-spacing: 0.1em;
       text-transform: uppercase;
     }
+
   </style>
 </head>
 <body>
+  <div class="qs-backdrop" id="qsBackdrop" aria-hidden="true"></div>
+  <div class="qs-main">
+    <div id="resultsContainer" class="qs-results"></div>
+  </div>
   <div class="quicksearch-wrap">
   <div class="shell">
     <div class="hint">HindSite quick search</div>

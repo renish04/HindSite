@@ -167,21 +167,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const img = new Image();
   img.onload = () => {
     try {
-      const tw = 800;
-      const th = 500;
-      const aspect = th / tw;
       const sw = img.width;
       const sh = img.height;
-      const cropH = Math.min(sh, sw * aspect);
+      // Preserve full viewport aspect (same as screen capture); scale down only — no edge crop.
+      const maxW = 1280;
+      const maxH = 900;
+      const scale = Math.min(maxW / sw, maxH / sh, 1);
+      const tw = Math.max(1, Math.round(sw * scale));
+      const th = Math.max(1, Math.round(sh * scale));
       const canvas = document.createElement('canvas');
       canvas.width = tw;
       canvas.height = th;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, sw, cropH, 0, 0, tw, th);
-      const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      ctx.drawImage(img, 0, 0, sw, sh, 0, 0, tw, th);
+      const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.88);
       hsThumbDebug('RESIZE_THUMBNAIL: JPEG ready', {
         jpegDataUrlLength: jpegDataUrl.length,
-        cropSize: `${tw}x${th}`,
+        outSize: `${tw}x${th}`,
         sourceImage: `${sw}x${sh}`
       });
       sendResponse({ dataUrl: jpegDataUrl });
@@ -553,12 +555,16 @@ function createOverlayIfNeeded() {
   hsOverlayRoot.className = 'hs-root';
   hsOverlayRoot.style.cssText = `
     position: fixed;
-    left: 50%;
-    bottom: 32px;
-    transform: translateX(-50%);
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
     z-index: 2147483647;
     pointer-events: none;
     display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    box-sizing: border-box;
   `;
 
   // Inject lightweight CSS once (for animations / mic pulse)
@@ -566,7 +572,124 @@ function createOverlayIfNeeded() {
     const style = document.createElement('style');
     style.id = 'hindsite-overlay-style';
     style.textContent = `
+      #hindsite-overlay-root .hs-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.58);
+        backdrop-filter: blur(8px);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.22s ease, visibility 0.22s ease;
+        z-index: 0;
+      }
+      #hindsite-overlay-root.hs-results-focus .hs-backdrop {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+      }
+      #hindsite-overlay-root .hs-main {
+        position: relative;
+        z-index: 1;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        width: 100%;
+        pointer-events: none;
+      }
+      #hindsite-overlay-root.hs-results-focus .hs-main {
+        justify-content: flex-end;
+        padding-bottom: 10px;
+      }
+      #hindsite-overlay-root .hs-overlay-results {
+        display: none;
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: center;
+        gap: clamp(12px, 2vw, 24px);
+        width: min(96vw, 1800px);
+        height: min(75vh, calc(100vh - 160px));
+        min-height: 240px;
+        max-height: 75vh;
+        padding: 0 clamp(8px, 2vw, 24px);
+        box-sizing: border-box;
+        pointer-events: auto;
+      }
+      #hindsite-overlay-root.hs-results-focus .hs-overlay-results {
+        display: flex;
+        height: auto;
+        min-height: 0;
+        max-height: none;
+        align-items: flex-start;
+      }
+      #hindsite-overlay-root .hs-result-card {
+        flex: 1 1 0;
+        min-width: 0;
+        max-width: calc(33.333% - 12px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(255,255,255,0.06);
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.1);
+        overflow: hidden;
+        cursor: pointer;
+        transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      }
+      #hindsite-overlay-root .hs-result-card:hover {
+        background: rgba(255,255,255,0.1);
+        box-shadow: 0 16px 48px rgba(0,0,0,0.45);
+        transform: translateY(-2px);
+      }
+      #hindsite-overlay-root .hs-result-thumb {
+        flex: 0 0 auto;
+        width: 100%;
+        line-height: 0;
+        background: rgba(0,0,0,0.28);
+      }
+      #hindsite-overlay-root .hs-result-thumb img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      #hindsite-overlay-root .hs-result-thumb-empty {
+        min-height: 100px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+        font-size: 12px;
+        line-height: normal;
+      }
+      #hindsite-overlay-root .hs-result-body {
+        flex: 0 0 auto;
+        padding: 6px 10px 8px;
+        overflow: hidden;
+      }
+      #hindsite-overlay-root .hs-result-head {
+        color: #e2e8f0;
+        font-weight: 600;
+        font-size: 13px;
+        line-height: 1.2;
+        margin-bottom: 2px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      }
+      #hindsite-overlay-root .hs-result-url-preview {
+        color: #94a3b8;
+        font-size: 11px;
+        line-height: 1.3;
+        word-break: break-all;
+        margin-bottom: 0;
+      }
       #hindsite-overlay-root .hs-panel {
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0;
+        align-self: center;
+        margin-bottom: 32px;
         opacity: 0;
         transform: translateY(18px) scale(0.985);
         transition: transform 180ms cubic-bezier(.2,.9,.2,1.15), opacity 180ms ease-out;
@@ -701,6 +824,15 @@ function createOverlayIfNeeded() {
   panel.appendChild(input);
   panel.appendChild(micBtn);
   panel.appendChild(sendChip);
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'hs-backdrop';
+
+  const main = document.createElement('div');
+  main.className = 'hs-main';
+
+  hsOverlayRoot.appendChild(backdrop);
+  hsOverlayRoot.appendChild(main);
   hsOverlayRoot.appendChild(panel);
   document.documentElement.appendChild(hsOverlayRoot);
 
@@ -743,7 +875,8 @@ function showOverlay() {
   createOverlayIfNeeded();
   if (!hsOverlayRoot) return;
 
-  hsOverlayRoot.style.display = 'block';
+  hsOverlayRoot.style.display = 'flex';
+  hsOverlayRoot.classList.remove('hs-results-focus');
   hsOverlayVisible = true;
   if (hsOverlayHideTimer) {
     clearTimeout(hsOverlayHideTimer);
@@ -767,14 +900,13 @@ function showOverlay() {
 
 function hideOverlay() {
   if (!hsOverlayRoot) return;
-  hsOverlayRoot.classList.remove('hs-visible');
+  hsOverlayRoot.classList.remove('hs-visible', 'hs-results-focus');
   hsOverlayVisible = false;
   stopOverlaySpeech();
   if (hsOverlayInput) hsOverlayInput.value = '';
   const resultsEl = hsOverlayRoot.querySelector('.hs-overlay-results');
   if (resultsEl) {
     resultsEl.innerHTML = '';
-    resultsEl.style.display = 'none';
   }
 
   // Let the exit transition finish, then hide
@@ -785,21 +917,13 @@ function hideOverlay() {
 
 function ensureOverlayResultsContainer() {
   if (!hsOverlayRoot) return null;
-  let container = hsOverlayRoot.querySelector('.hs-overlay-results');
+  const main = hsOverlayRoot.querySelector('.hs-main');
+  if (!main) return null;
+  let container = main.querySelector('.hs-overlay-results');
   if (!container) {
     container = document.createElement('div');
     container.className = 'hs-overlay-results';
-    container.style.cssText = `
-      pointer-events: auto;
-      max-height: 280px;
-      overflow-y: auto;
-      margin-bottom: 8px;
-      padding: 8px;
-      background: rgba(15,23,42,0.95);
-      border-radius: 12px;
-      border: 1px solid rgba(148,163,184,0.3);
-    `;
-    hsOverlayRoot.insertBefore(container, hsOverlayRoot.firstChild);
+    main.appendChild(container);
   }
   return container;
 }
@@ -807,6 +931,12 @@ function ensureOverlayResultsContainer() {
 function performOverlaySearch(query) {
   const q = (query || (hsOverlayInput && hsOverlayInput.value) || '').trim();
   if (!q) return;
+
+  if (hsOverlayRoot) {
+    hsOverlayRoot.classList.remove('hs-results-focus');
+    const prev = hsOverlayRoot.querySelector('.hs-overlay-results');
+    if (prev) prev.innerHTML = '';
+  }
 
   // In-out press animation on send button (from Enter or click)
   const sendChip = hsOverlayRoot && hsOverlayRoot.querySelector('.hs-send-chip');
@@ -817,10 +947,10 @@ function performOverlaySearch(query) {
 
   if (!extensionContextValid()) {
     const resultsEl = ensureOverlayResultsContainer();
-    if (resultsEl) {
+    if (resultsEl && hsOverlayRoot) {
       resultsEl.innerHTML =
-        '<div style="color:#f87171;text-align:center;padding:12px;">Extension was reloaded — refresh this page (F5)</div>';
-      resultsEl.style.display = 'block';
+        '<div style="color:#f87171;text-align:center;padding:24px;width:100%;">Extension was reloaded — refresh this page (F5)</div>';
+      hsOverlayRoot.classList.add('hs-results-focus');
     }
     return;
   }
@@ -828,9 +958,10 @@ function performOverlaySearch(query) {
   safeSendMessage({ type: 'SEARCH', query: q }, (response) => {
     if (chrome.runtime.lastError) {
       const resultsEl = ensureOverlayResultsContainer();
-      if (resultsEl) {
-        resultsEl.innerHTML = '<div style="color:#f87171;text-align:center;padding:12px;">Search failed</div>';
-        resultsEl.style.display = 'block';
+      if (resultsEl && hsOverlayRoot) {
+        resultsEl.innerHTML =
+          '<div style="color:#f87171;text-align:center;padding:24px;width:100%;">Search failed</div>';
+        hsOverlayRoot.classList.add('hs-results-focus');
       }
       return;
     }
@@ -843,57 +974,73 @@ function performOverlaySearch(query) {
       return;
     }
     const resultsEl = ensureOverlayResultsContainer();
-    if (resultsEl) {
-      resultsEl.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:12px;">No matching pages found</div>';
-      resultsEl.style.display = 'block';
+    if (resultsEl && hsOverlayRoot) {
+      resultsEl.innerHTML =
+        '<div style="color:#94a3b8;text-align:center;padding:24px;width:100%;">No matching pages found</div>';
+      hsOverlayRoot.classList.add('hs-results-focus');
     }
   });
 }
 
+function hsEscapeHtmlAttr(value) {
+  if (value == null || value === '') return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function hsEscapeHtmlText(value) {
+  if (value == null || value === '') return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function hsTruncateUrlHtml(url, maxLen) {
+  if (url == null || url === '') return '';
+  const s = String(url).trim();
+  if (s.length <= maxLen) return hsEscapeHtmlText(s);
+  return hsEscapeHtmlText(s.slice(0, maxLen - 3)) + '...';
+}
+
 function showOverlayResults(results) {
   const container = ensureOverlayResultsContainer();
-  if (!container) return;
+  if (!container || !hsOverlayRoot) return;
+
+  if (!results.length) {
+    container.innerHTML =
+      '<div style="color:#94a3b8;text-align:center;padding:24px;width:100%;">No matching pages found</div>';
+    hsOverlayRoot.classList.add('hs-results-focus');
+    return;
+  }
+
+  hsOverlayRoot.classList.add('hs-results-focus');
   container.innerHTML = results
     .map((r) => {
-      const urlRaw = (r.url || '').replace(/"/g, '&quot;');
-      const domainDisplay = (r.domain || (r.url || '').replace(/^https?:\/\//, '').split('/')[0] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const titleDisplay = (r.title || 'Untitled').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const rawUrl = r.url || '';
+      const domainRaw = r.domain || rawUrl.replace(/^https?:\/\//, '').split('/')[0] || '';
       const thumbB64 = r.thumbnail_base64 || '';
       const imgBlock = thumbB64
-        ? `<img src="data:image/jpeg;base64,${thumbB64.replace(/"/g, '&quot;')}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />`
-        : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">No preview</div>';
-      return `<div class="hs-result-card" data-url="${urlRaw}" style="
-        padding: 0;
-        margin-bottom: 10px;
-        border-radius: 12px;
-        background: rgba(255,255,255,0.06);
-        cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.08);
-        transition: background 0.2s, box-shadow 0.2s;
-        overflow: hidden;
-      " title="${urlRaw}">
-        <div style="width:100%;aspect-ratio:8/5;background:rgba(0,0,0,0.25);">${imgBlock}</div>
-        <div style="padding: 14px 16px;">
-        <div style="color: #e2e8f0; font-weight: 600; font-size: 16px; margin-bottom: 4px; line-height: 1.35;">${domainDisplay || 'URL'}</div>
-        <div style="color: #94a3b8; font-size: 14px; font-weight: 500;">${titleDisplay}</div>
+        ? `<img src="data:image/jpeg;base64,${thumbB64.replace(/"/g, '&quot;')}" alt="" />`
+        : '<div class="hs-result-thumb-empty">No preview</div>';
+      return `<div class="hs-result-card" data-url="${hsEscapeHtmlAttr(rawUrl)}" title="${hsEscapeHtmlAttr(rawUrl)}">
+        <div class="hs-result-thumb">${imgBlock}</div>
+        <div class="hs-result-body">
+          <div class="hs-result-head">${hsEscapeHtmlText(domainRaw || 'URL')}</div>
+          <div class="hs-result-url-preview">${hsTruncateUrlHtml(rawUrl, 72)}</div>
         </div>
       </div>`;
     })
     .join('');
-  container.style.display = 'block';
+
   container.querySelectorAll('.hs-result-card').forEach((el) => {
     el.addEventListener('click', () => {
       const url = el.getAttribute('data-url');
       if (url) safeSendMessage({ type: 'OPEN_URL', url });
       hideOverlay();
-    });
-    el.addEventListener('mouseenter', () => {
-      el.style.background = 'rgba(255,255,255,0.1)';
-      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
-    });
-    el.addEventListener('mouseleave', () => {
-      el.style.background = 'rgba(255,255,255,0.06)';
-      el.style.boxShadow = 'none';
     });
   });
 }
