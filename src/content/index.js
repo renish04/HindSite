@@ -380,10 +380,53 @@ function getFullBodyText(maxChars) {
   return document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, maxChars);
 }
 
+function getBestTitleFromDocument() {
+  const t =
+    document.title ||
+    (document.querySelector('h1') && document.querySelector('h1').textContent) ||
+    (document.querySelector('meta[property="og:title"]') &&
+      document.querySelector('meta[property="og:title"]').getAttribute('content')) ||
+    (document.querySelector('meta[name="title"]') &&
+      document.querySelector('meta[name="title"]').getAttribute('content')) ||
+    (window.location && window.location.hostname) ||
+    '';
+  return String(t).trim().substring(0, 200);
+}
+
 /** Use Readability whenever it returns any content (no minimum word count). */
 function extractContentWithReadability() {
   try {
+    // Clone and remove noisy UI elements BEFORE running Readability.
     const docClone = document.cloneNode(true);
+    const noisySelectors = [
+      '[role="navigation"]',
+      '[role="banner"]',
+      '[role="complementary"]',
+      '[aria-label*="cookie"]',
+      '[class*="cookie"]',
+      '[class*="consent"]',
+      '[class*="feedback"]',
+      '[class*="chat"]',
+      '[class*="assistant"]',
+      '[id*="rufus"]', // Amazon's AI
+      'nav',
+      'header',
+      'footer',
+      'aside',
+      '.sidebar',
+      '.ad',
+      '.advertisement',
+      '[role="alert"]',
+      '[role="dialog"]',
+    ];
+
+    noisySelectors.forEach((selector) => {
+      try {
+        docClone.querySelectorAll(selector).forEach((el) => el.remove());
+      } catch (_) {
+        // ignore invalid selector issues defensively
+      }
+    });
     if (typeof Readability === 'undefined') {
       return null;
     }
@@ -393,7 +436,7 @@ function extractContentWithReadability() {
       return null;
     }
     return {
-      title: (article.title && article.title.trim()) || document.title || '',
+      title: (article && article.title ? String(article.title) : getBestTitleFromDocument()).trim().substring(0, 200),
       content: article.textContent.trim(),
       summary: (article.excerpt && article.excerpt.trim()) || ''
     };
@@ -405,7 +448,7 @@ function extractContentWithReadability() {
 
 /** Fallback: title, meta, then as much body as we can (multiple paragraphs or full body truncated). */
 function extractContentFallback() {
-  const title = document.title || '';
+  const title = getBestTitleFromDocument();
   const metaDesc = getMetaDescription();
   const metaAndTitle = [title, metaDesc].filter(Boolean).join('\n\n');
   // Take first 8 paragraphs or 5000 chars of body text so we don't lose context

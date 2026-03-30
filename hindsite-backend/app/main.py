@@ -16,6 +16,7 @@ from app.services.embeddings import embedder
 from app.services.router import query_router
 from app.services.search import search_service
 from app.utils import clean_content, extract_domain, extract_title_from_content
+from .routers import topics
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,21 @@ except ProgrammingError as e:
 except Exception:
     pass
 
+# Ensure topic classification columns exist (dev-friendly schema sync)
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_label VARCHAR(100)"))
+        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_confidence FLOAT"))
+        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_cluster_id INTEGER"))
+        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS is_topic_outlier BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_classified_at TIMESTAMP"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_captured_pages_topic_label ON captured_pages(topic_label)"))
+        conn.commit()
+except ProgrammingError as e:
+    logger.warning("Could not add topic classification columns: %s", e)
+except Exception:
+    pass
+
 app = FastAPI(title="HindSite API", version="1.0.0")
 
 app.add_middleware(
@@ -62,6 +78,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add this line where you include other routers
+app.include_router(topics.router)
 
 
 @app.exception_handler(ProgrammingError)

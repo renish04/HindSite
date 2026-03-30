@@ -18,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (quickBtn) {
       quickBtn.addEventListener('click', openQuickSearchOverlay);
     }
+    const topicsBtn = document.getElementById('topicClustersBtn');
+    if (topicsBtn) {
+      topicsBtn.addEventListener('click', openTopicClustersView);
+    }
   });
   
   function loadSavedPages() {
@@ -108,11 +112,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Total pages
     const totalPages = pages.length;
     document.getElementById('totalPages').textContent = totalPages;
-    
-    // Average time spent
-    const totalTime = pages.reduce((sum, page) => sum + page.metadata.timeSpent, 0);
-    const avgTime = Math.round(totalTime / Math.max(totalPages, 1));
-    document.getElementById('avgTime').textContent = avgTime + 's';
   }
   
   // ============================================
@@ -136,7 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Update stats to 0
     document.getElementById('totalPages').textContent = '0';
-    document.getElementById('avgTime').textContent = '0s';
   }
   
   // ============================================
@@ -276,6 +274,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       chrome.windows.create(createData);
     });
+  }
+
+  // ============================================
+  // TOPIC CLUSTERS VIEW
+  // ============================================
+  function openTopicClustersView() {
+    const url = chrome.runtime.getURL('src/topics/index.html');
+    chrome.tabs.create({ url });
   }
   
   // Normalize URL for exact comparison (preserves fragments)

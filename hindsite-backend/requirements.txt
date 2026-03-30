@@ -5,3 +5,5 @@ cohere
 psycopg2-binary 
 pgvector 
 sqlalchemy
+numpy
+scikit-learn

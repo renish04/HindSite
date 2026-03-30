@@ -29,7 +29,15 @@ def init_db():
             raise
     Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
-        for col_name, col_type in [("summary", "TEXT"), ("thumbnail", "BYTEA")]:
+        for col_name, col_type in [
+            ("summary", "TEXT"),
+            ("thumbnail", "BYTEA"),
+            ("topic_label", "VARCHAR(100)"),
+            ("topic_confidence", "FLOAT"),
+            ("topic_cluster_id", "INTEGER"),
+            ("is_topic_outlier", "BOOLEAN DEFAULT FALSE"),
+            ("topic_classified_at", "TIMESTAMP"),
+        ]:
             try:
                 conn.execute(text(f"ALTER TABLE captured_pages ADD COLUMN {col_name} {col_type}"))
                 conn.commit()
@@ -37,6 +45,11 @@ def init_db():
                 conn.rollback()
                 if "already exists" not in str(e).lower():
                     raise
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_captured_pages_topic_label ON captured_pages(topic_label)"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
     print("Done: vector extension and captured_pages table are ready.")
 
 

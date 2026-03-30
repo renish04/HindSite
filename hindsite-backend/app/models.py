@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, LargeBinary
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, LargeBinary, Boolean
 from pgvector.sqlalchemy import Vector
 from app.database import Base
 import uuid
@@ -20,3 +20,10 @@ class CapturedPage(Base):
     embedding = Column(Vector(1024))  # Cohere embed-english-v3.0 dimensions
     captured_at = Column(DateTime, default=datetime.utcnow, index=True)
     thumbnail = Column(LargeBinary, nullable=True)
+
+    # Topic classification fields (optional - computed on demand)
+    topic_label = Column(String(100), nullable=True, index=True)
+    topic_confidence = Column(Float, nullable=True)
+    topic_cluster_id = Column(Integer, nullable=True)
+    is_topic_outlier = Column(Boolean, default=False)
+    topic_classified_at = Column(DateTime, nullable=True)
