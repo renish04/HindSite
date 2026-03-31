@@ -25,15 +25,9 @@ function setLoading(on) {
 async function fetchStatus() {
   const res = await fetch(`${API_BASE}/topics/status`);
   const data = await res.json();
-  if (data.is_trained) {
-    statusBadgeEl.textContent = `${data.n_topics} topics discovered`;
-    statusBadgeEl.style.background = "#dcfce7";
-    statusBadgeEl.style.color = "#166534";
-  } else {
-    statusBadgeEl.textContent = "Model not trained";
-    statusBadgeEl.style.background = "#fef3c7";
-    statusBadgeEl.style.color = "#92400e";
-  }
+  // Hide status badge text per UI preference.
+  statusBadgeEl.textContent = "";
+  statusBadgeEl.style.display = "none";
 }
 
 function pageCard(page) {
@@ -65,8 +59,8 @@ function clusterSection(topic, idx) {
   head.className = "cluster-head";
   head.innerHTML = `
     <div>
-      <h3 class="cluster-title">${topic.topic_label}</h3>
-      <div class="cluster-count">${topic.page_count} pages</div>
+      <h3 class="cluster-title">${topic.topic_label || topic.topic_name || "Topic"}</h3>
+      <div class="cluster-count">${topic.page_count || (topic.pages ? topic.pages.length : 0)} pages</div>
     </div>
     <div id="arrow-${idx}">▼</div>
   `;
@@ -93,8 +87,20 @@ async function fetchClusters() {
 
   try {
     await fetchStatus();
-    const res = await fetch(`${API_BASE}/topics/pages?include_thumbnails=true`);
-    const data = await res.json();
+    const res = await fetch(`${API_BASE}/topics/organized`);
+    const payload = await res.json();
+    let data = [];
+    if (Array.isArray(payload)) {
+      data = payload;
+    } else if (Array.isArray(payload.topics)) {
+      data = payload.topics;
+    } else if (payload.topics && typeof payload.topics === "object") {
+      data = Object.entries(payload.topics).map(([name, value]) => ({
+        topic_name: name,
+        page_count: value.count || (value.pages ? value.pages.length : 0),
+        pages: value.pages || [],
+      }));
+    }
 
     if (!Array.isArray(data) || data.length === 0) {
       emptyEl.classList.remove("hidden");
@@ -116,7 +122,7 @@ async function autoOrganize() {
   retrainBtn.disabled = true;
   setError(null);
   try {
-    const res = await fetch(`${API_BASE}/topics/auto-organize`, { method: "POST" });
+    const res = await fetch(`${API_BASE}/topics/organize`, { method: "POST" });
     const data = await res.json();
     if (!data.success) throw new Error(data.message || "Auto-organize failed");
     await fetchClusters();
@@ -133,11 +139,7 @@ async function retrain() {
   retrainBtn.disabled = true;
   setError(null);
   try {
-    const res = await fetch(`${API_BASE}/topics/train`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ force_retrain: true }),
-    });
+    const res = await fetch(`${API_BASE}/topics/organize`, { method: "POST" });
     const data = await res.json();
     if (!data.success) throw new Error(data.message || "Retrain failed");
     await fetchClusters();

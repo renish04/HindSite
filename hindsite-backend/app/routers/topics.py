@@ -18,12 +18,14 @@ from datetime import datetime
 from ..database import get_db
 from ..models import CapturedPage
 from ..services.topic_model import TopicModel, TopicService
+from ..services.llm_refiner import TopicOrganizer
 
 # Create router
 router = APIRouter(prefix="/topics", tags=["topics"])
 
 # Initialize the topic service (singleton)
 topic_service = TopicService()
+topic_organizer = TopicOrganizer()
 
 
 # ============================================================
@@ -149,6 +151,19 @@ def page_to_response_dict(page: dict, include_thumbnail: bool = False) -> dict:
         result["thumbnail_base64"] = base64.b64encode(page["thumbnail"]).decode('utf-8')
     
     return result
+
+
+def page_to_compact_topic_dict(page: dict, include_thumbnail: bool = True) -> dict:
+    """Compact page shape for topic maps (auto-organize + LLM refinement)."""
+    p = page_to_response_dict(page, include_thumbnail=include_thumbnail)
+    return {
+        "id": p["id"],
+        "url": p["url"],
+        "title": p["title"],
+        "domain": p["domain"],
+        "confidence": page.get("topic_confidence", 0),
+        "thumbnail_base64": p.get("thumbnail_base64"),
+    }
 
 
 # ============================================================
@@ -442,12 +457,7 @@ async def auto_organize(
             label: {
                 "count": len(topic_pages),
                 "pages": [
-                    {
-                        "id": p["id"],
-                        "title": p["title"],
-                        "domain": p["domain"],
-                        "confidence": p.get("topic_confidence", 0)
-                    }
+                    page_to_compact_topic_dict(p, include_thumbnail=True)
                     for p in topic_pages
                 ]
             }
@@ -477,4 +487,45 @@ async def delete_model():
         "success": True,
         "message": "Model deleted. Next call to /train will create a fresh model."
     }
+
+
+@router.post("/organize")
+async def organize_with_refinement(
+    db: Session = Depends(get_db)
+):
+    """
+    Organize pages using GMM training + LLM refinement.
+    
+    This endpoint:
+    1. Trains GMM model (unsupervised ML)
+    2. Refines results with LLM (for better accuracy)
+    3. Returns properly organized topics
+    
+    The ML training happens first, then LLM improves the results.
+    """
+    # Build base object from the same shape as /topics/auto-organize.
+    base = await auto_organize(db)
+    if not base.get("success"):
+        return base
+
+    print("\n[LLM] Refining auto-organized topics object...")
+    return topic_organizer.organize_auto_result(base)
+
+
+@router.get("/organized")
+async def get_organized_pages(
+    db: Session = Depends(get_db)
+):
+    """
+    Get pages organized by topics.
+    Uses cached results if available, otherwise trains + refines.
+    """
+    # Check if we have cached results
+    if topic_organizer.last_refined_result:
+        return topic_organizer.last_refined_result
+
+    base = await auto_organize(db)
+    if not base.get("success"):
+        return base
+    return topic_organizer.organize_auto_result(base)
 
