@@ -129,24 +129,30 @@ function analyzePageHeight() {
   }
 }
 
-function scheduleThumbnailCapture(delayMs, source) {
+// scrollToTopForCapture: false for refocus capture — no scroll jump/flicker; true on load for top-of-page thumb.
+function scheduleThumbnailCapture(delayMs, source, scrollToTopForCapture = true) {
   const href = window.location.href;
   if (!href.startsWith('http://') && !href.startsWith('https://')) {
     hsThumbDebug('thumbnail: skip schedule (URL not http/https)', { href, source });
     return;
   }
-  hsThumbDebug('thumbnail: schedule delayed PAGE_LOADED_FOR_THUMBNAIL', { delayMs, source, href });
+  hsThumbDebug('thumbnail: schedule delayed PAGE_LOADED_FOR_THUMBNAIL', {
+    delayMs,
+    source,
+    href,
+    scrollToTopForCapture
+  });
   setTimeout(() => {
     hsThumbDebug('thumbnail: timer fired', {
       source,
       href,
       contextOk: extensionContextValid()
     });
-    // Ensure we capture the top of the page (viewport at scroll=0) when the URL is hit.
+    // On first load, align viewport to top so thumbnails match the URL’s header. On refocus, optional skip (see param).
     const prevScrollX = window.scrollX;
     const prevScrollY = window.scrollY;
     try {
-      if (prevScrollX !== 0 || prevScrollY !== 0) window.scrollTo(0, 0);
+      if (scrollToTopForCapture && (prevScrollX !== 0 || prevScrollY !== 0)) window.scrollTo(0, 0);
     } catch (_) {
       // Ignore scroll restoration failures (some sites block programmatic scroll).
     }
@@ -154,7 +160,7 @@ function scheduleThumbnailCapture(delayMs, source) {
     safeSendMessage({ type: 'PAGE_LOADED_FOR_THUMBNAIL' }, () => {
       requestAnimationFrame(() => {
         try {
-          if (prevScrollX !== 0 || prevScrollY !== 0) window.scrollTo(prevScrollX, prevScrollY);
+          if (scrollToTopForCapture && (prevScrollX !== 0 || prevScrollY !== 0)) window.scrollTo(prevScrollX, prevScrollY);
         } catch (_) {
           // ignore
         }
@@ -174,8 +180,8 @@ let docWasHidden = false;
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') docWasHidden = true;
   else if (document.visibilityState === 'visible' && docWasHidden && document.readyState === 'complete') {
-    // When returning focus, refresh the top-of-page thumbnail viewport.
-    scheduleThumbnailCapture(200, 'visibilitychange');
+    // Deferred capture when tab becomes active (e.g. load happened in background). Do not scroll — avoids flicker.
+    scheduleThumbnailCapture(200, 'visibilitychange', false);
   }
 });
 
