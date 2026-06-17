@@ -16,7 +16,6 @@ from app.services.embeddings import embedder
 from app.services.router import query_router
 from app.services.search import search_service
 from app.utils import clean_content, extract_domain, extract_title_from_content
-from .routers import topics
 
 logger = logging.getLogger(__name__)
 
@@ -54,21 +53,6 @@ except ProgrammingError as e:
 except Exception:
     pass
 
-# Ensure topic classification columns exist (dev-friendly schema sync)
-try:
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_label VARCHAR(100)"))
-        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_confidence FLOAT"))
-        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_cluster_id INTEGER"))
-        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS is_topic_outlier BOOLEAN DEFAULT FALSE"))
-        conn.execute(text("ALTER TABLE captured_pages ADD COLUMN IF NOT EXISTS topic_classified_at TIMESTAMP"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_captured_pages_topic_label ON captured_pages(topic_label)"))
-        conn.commit()
-except ProgrammingError as e:
-    logger.warning("Could not add topic classification columns: %s", e)
-except Exception:
-    pass
-
 app = FastAPI(title="HindSite API", version="1.0.0")
 
 app.add_middleware(
@@ -78,9 +62,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add this line where you include other routers
-app.include_router(topics.router)
 
 
 @app.exception_handler(ProgrammingError)
@@ -243,10 +224,30 @@ def list_pages(limit: int = 50, db: Session = Depends(get_db)):
 
 @app.delete("/pages/{page_id}")
 def delete_page(page_id: str, db: Session = Depends(get_db)):
-    """Delete a captured page."""
+    """Delete a captured page by ID or URL.
+
+    If page_id looks like a UUID (has dashes), search by ID.
+    Otherwise, treat it as a URL-encoded identifier and search by URL.
+    """
+    # Try to find by ID first
     page = db.query(CapturedPage).filter(CapturedPage.id == page_id).first()
+
+    # If not found by ID, try to find by URL (page_id might be a URL passed as parameter)
+    if not page:
+        page = db.query(CapturedPage).filter(CapturedPage.url == page_id).first()
+
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
+
     db.delete(page)
     db.commit()
-    return {"status": "deleted", "id": page_id}
+    return {"status": "deleted", "id": page.id, "url": page.url}
+
+
+@app.delete("/pages")
+def delete_all_pages(db: Session = Depends(get_db)):
+    """Delete all captured pages."""
+    count = db.query(CapturedPage).count()
+    db.query(CapturedPage).delete()
+    db.commit()
+    return {"status": "deleted_all", "count": count}

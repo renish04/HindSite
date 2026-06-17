@@ -18,10 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (quickBtn) {
       quickBtn.addEventListener('click', openQuickSearchOverlay);
     }
-    const topicsBtn = document.getElementById('topicClustersBtn');
-    if (topicsBtn) {
-      topicsBtn.addEventListener('click', openTopicClustersView);
-    }
   });
   
   function loadSavedPages() {
@@ -140,17 +136,39 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================
   // CLEAR ALL FUNCTIONALITY
   // ============================================
-  
+
   function clearAllPages() {
     const confirmed = confirm(
       'Are you sure you want to delete all saved pages?\n\nThis action cannot be undone!'
     );
-    
+
     if (confirmed) {
-      chrome.storage.local.set({ savedPages: [] }, () => {
-        currentPages = [];
-        console.log('🗑️ All pages cleared');
-        showEmptyState();
+      // Delete from backend first
+      fetch('http://localhost:8000/pages', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`Backend delete failed: ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        console.log('🗑️ Backend: All pages deleted', data);
+        // Then clear local storage
+        chrome.storage.local.set({ savedPages: [] }, () => {
+          currentPages = [];
+          console.log('🗑️ Local: All pages cleared');
+          showEmptyState();
+        });
+      })
+      .catch(err => {
+        console.error('Failed to delete from backend:', err);
+        // Still clear local storage as fallback
+        chrome.storage.local.set({ savedPages: [] }, () => {
+          currentPages = [];
+          console.warn('⚠️ Local cleared but backend delete failed. Refresh extension to sync.');
+          showEmptyState();
+        });
       });
     }
   }
@@ -168,18 +186,48 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const nextPages = currentPages.filter((p) => p.url !== url);
+    // Delete from backend
+    fetch(`http://localhost:8000/pages/${encodeURIComponent(url)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    })
+    .then(res => {
+      if (!res.ok) throw new Error(`Backend delete failed: ${res.status}`);
+      return res.json();
+    })
+    .then(data => {
+      console.log('🗑️ Backend: Page deleted', data);
+      // Then update local storage
+      const nextPages = currentPages.filter((p) => p.url !== url);
+      chrome.storage.local.set({ savedPages: nextPages }, () => {
+        currentPages = nextPages;
+        console.log('🗑️ Local: Page removed from storage');
 
-    chrome.storage.local.set({ savedPages: nextPages }, () => {
-      currentPages = nextPages;
+        if (currentPages.length === 0) {
+          showEmptyState();
+          return;
+        }
 
-      if (currentPages.length === 0) {
-        showEmptyState();
-        return;
-      }
+        displayPages(currentPages);
+        updateStatistics(currentPages);
+      });
+    })
+    .catch(err => {
+      console.error('Failed to delete from backend:', err);
+      // Still update local storage as fallback
+      const nextPages = currentPages.filter((p) => p.url !== url);
+      chrome.storage.local.set({ savedPages: nextPages }, () => {
+        currentPages = nextPages;
+        console.warn('⚠️ Local updated but backend delete failed. Refresh extension to sync.');
 
-      displayPages(currentPages);
-      updateStatistics(currentPages);
+        if (currentPages.length === 0) {
+          showEmptyState();
+          return;
+        }
+
+        displayPages(currentPages);
+        updateStatistics(currentPages);
+      });
     });
   }
   
@@ -276,14 +324,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ============================================
-  // TOPIC CLUSTERS VIEW
-  // ============================================
-  function openTopicClustersView() {
-    const url = chrome.runtime.getURL('src/topics/index.html');
-    chrome.tabs.create({ url });
-  }
-  
   // Normalize URL for exact comparison (preserves fragments)
   function normalizeUrl(url) {
     try {
